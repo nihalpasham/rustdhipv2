@@ -833,12 +833,23 @@ impl<'a> HIPDaemon<'a> {
                     hip_state.map(|state| state.unassociated());
                 }
 
-                // Echo Response Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
+                // Echo Response Signed Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
                 let mut echo_signed = EchoResponseSignedParameter::new_checked([0; 36])?;
                 echo_signed.init_echoresponse_signed_param();
-                echo_signed.set_opaque_data(
-                    echo_request_signed_opaque_data.ok_or_else(|| HIPError::FieldisNOTSet)??,
-                );
+                if echo_request_signed_opaque_data.is_some() {
+                    echo_signed.set_opaque_data(
+                        echo_request_signed_opaque_data.ok_or_else(|| HIPError::FieldisNOTSet)??,
+                    );
+                }
+                // Echo Response Unsigned Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
+                let mut echo_unsigned = EchoResponseUnsignedParameter::new_checked([0; 36])?;
+                echo_unsigned.init_echoresponse_unsigned_param();
+                if echo_request_unisgned_opaque_data.is_some() {
+                    echo_unsigned.set_opaque_data(
+                        echo_request_unisgned_opaque_data.ok_or_else(|| HIPError::FieldisNOTSet)??,
+                    );
+                }
+
                 let mut param_buf: Vec<u8, U512> = Vec::new();
                 #[rustfmt::skip]
                 match (r1_counter_param, echo_request_signed_opaque_data) {
@@ -1295,56 +1306,53 @@ impl<'a> HIPDaemon<'a> {
                 // Compute HMAC
                 let mut param_buf: Vec<u8, U512> = Vec::new();
                 match (r1_counter_param, echo_request_signed_opaque_data) {
-                    (Some(r1), Some(echo_req)) => {
-                        //
-                        match (dh_param, hi_param) {
-                            (
-                                (HIPParamsTypes::DHParam(dh256), HIPParamsTypes::Default),
-                                (HIPParamsTypes::HostIdParam(hi256), HIPParamsTypes::Default),
-                            ) => {
-                                for byte in esp_info_param
-                                    .inner_ref()
-                                    .as_ref()
-                                    .iter()
-                                    .chain(r1.inner_ref().as_ref().iter())
-                                    .chain(solution_param.inner_ref().as_ref().iter())
-                                    .chain(dh256.inner_ref().as_ref().iter())
-                                    .chain(cipher_param.inner_ref().as_ref().iter())
-                                    .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                    .chain(hi256.inner_ref().as_ref().iter())
-                                    .chain(echo_signed.inner_ref().as_ref().iter())
-                                    .chain(transfmt_param.inner_ref().as_ref().iter())
-                                {
-                                    param_buf
-                                        .push(*byte)
-                                        .map_err(|_| HIPError::Bufferistooshort);
-                                }
+                    (Some(r1), Some(echo_req)) => match (dh_param, hi_param) {
+                        (
+                            (HIPParamsTypes::DHParam(dh256), HIPParamsTypes::Default),
+                            (HIPParamsTypes::HostIdParam(hi256), HIPParamsTypes::Default),
+                        ) => {
+                            for byte in esp_info_param
+                                .inner_ref()
+                                .as_ref()
+                                .iter()
+                                .chain(r1.inner_ref().as_ref().iter())
+                                .chain(solution_param.inner_ref().as_ref().iter())
+                                .chain(dh256.inner_ref().as_ref().iter())
+                                .chain(cipher_param.inner_ref().as_ref().iter())
+                                .chain(esp_transform_param.inner_ref().as_ref().iter())
+                                .chain(hi256.inner_ref().as_ref().iter())
+                                .chain(echo_signed.inner_ref().as_ref().iter())
+                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                            {
+                                param_buf
+                                    .push(*byte)
+                                    .map_err(|_| HIPError::Bufferistooshort);
                             }
-                            (
-                                (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh384)),
-                                (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi384)),
-                            ) => {
-                                for byte in esp_info_param
-                                    .inner_ref()
-                                    .as_ref()
-                                    .iter()
-                                    .chain(r1.inner_ref().as_ref().iter())
-                                    .chain(solution_param.inner_ref().as_ref().iter())
-                                    .chain(dh384.inner_ref().as_ref().iter())
-                                    .chain(cipher_param.inner_ref().as_ref().iter())
-                                    .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                    .chain(hi384.inner_ref().as_ref().iter())
-                                    .chain(echo_signed.inner_ref().as_ref().iter())
-                                    .chain(transfmt_param.inner_ref().as_ref().iter())
-                                {
-                                    param_buf
-                                        .push(*byte)
-                                        .map_err(|_| HIPError::Bufferistooshort);
-                                }
-                            }
-                            (_, _) => unimplemented!(),
                         }
-                    }
+                        (
+                            (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh384)),
+                            (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi384)),
+                        ) => {
+                            for byte in esp_info_param
+                                .inner_ref()
+                                .as_ref()
+                                .iter()
+                                .chain(r1.inner_ref().as_ref().iter())
+                                .chain(solution_param.inner_ref().as_ref().iter())
+                                .chain(dh384.inner_ref().as_ref().iter())
+                                .chain(cipher_param.inner_ref().as_ref().iter())
+                                .chain(esp_transform_param.inner_ref().as_ref().iter())
+                                .chain(hi384.inner_ref().as_ref().iter())
+                                .chain(echo_signed.inner_ref().as_ref().iter())
+                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                            {
+                                param_buf
+                                    .push(*byte)
+                                    .map_err(|_| HIPError::Bufferistooshort);
+                            }
+                        }
+                        (_, _) => unimplemented!(),
+                    },
                     (Some(r1), None) => match (dh_param, hi_param) {
                         (
                             (HIPParamsTypes::DHParam(dh256), HIPParamsTypes::Default),
@@ -1586,6 +1594,179 @@ impl<'a> HIPDaemon<'a> {
                     }
                     (_, _) => unimplemented!(),
                 };
+
+                // Reset I2 packet length. We'll progressively `set header_len` when adding each
+                // parameter.
+                hip_i2_packet
+                    .packet
+                    .set_header_length(HIP_DEFAULT_PACKET_LENGTH as u8);
+
+                #[rustfmt::skip]
+                // Add I2 parameters. List of mandatory parameters in an I2 packet
+                 match (r1_counter_param, echo_request_signed_opaque_data) {
+                       (Some(r1), Some(echo_req)) => {
+                           match (dh_param, hi_param, signature_param) {
+                                (
+                                    (HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::SignatureParam(sign_param_256), HIPParamsTypes::Default),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::R1Counter(R1CounterParam::fromtype(&r1)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::EchoResponseSignedParam(EchoResponseSignedParameter::fromtype(&echo_signed)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac256_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_256)?));
+                                }
+                                (
+                                    (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::SignatureParam(sign_param_384)),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::R1Counter(R1CounterParam::fromtype(&r1)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::EchoResponseSignedParam(EchoResponseSignedParameter::fromtype(&echo_signed)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac384_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_384)?));
+                                }
+                                _ => unimplemented!(),
+                            }
+                        },
+                        (Some(r1), None) => {
+                            match (dh_param, hi_param, signature_param) {
+                                (
+                                    (HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::SignatureParam(sign_param_256), HIPParamsTypes::Default),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::R1Counter(R1CounterParam::fromtype(&r1)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac256_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_256)?));
+                                }
+                                (
+                                    (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::SignatureParam(sign_param_384)),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::R1Counter(R1CounterParam::fromtype(&r1)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac384_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_384)?));
+                                }
+                                _ => unimplemented!(),
+                            }
+                        },
+                        (None, Some(echo_req)) => {
+                            match (dh_param, hi_param, signature_param) {
+                                (
+                                    (HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::SignatureParam(sign_param_256), HIPParamsTypes::Default),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::EchoResponseSignedParam(EchoResponseSignedParameter::fromtype(&echo_signed)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac256_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_256)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                (
+                                    (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::SignatureParam(sign_param_384)),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::EchoResponseSignedParam(EchoResponseSignedParameter::fromtype(&echo_signed)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac384_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_384)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                _ => unimplemented!(),
+                            }
+                        },
+                        (None, None) => {
+                            match (dh_param, hi_param, signature_param) {
+                                (
+                                    (HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::SignatureParam(sign_param_256), HIPParamsTypes::Default),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac256_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_256)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(
+                                            EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                (
+                                    (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::SignatureParam(sign_param_384)),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac384_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_384)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(
+                                            EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                _ => unimplemented!(),
+                            }
+                        }
+                    }
             }
             _ => todo!(),
         }
