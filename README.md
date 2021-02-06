@@ -1,11 +1,11 @@
 
-## A quick note: This is a WIP
+### A quick note: This is a WIP
 I'm a security consultant by profession. This is my very first attempt at putting together a full fledged networking-related library. So, please be feel free to point out if something's amiss. 
 
-## Context: 
+### Context: 
 I've been evaluating `TLS replacements` for constrained/embedded systems for a while now. Embedded systems have fewer (yet precise) security requirements, owing to available resources and TLS is not exactly a good fit (for a number of reasons).
 
-## Why not TLS:
+### Why not TLS:
 	- Bloated with a plethora of extensions 
 	- Mutual TLS authentication is NOT the default and a serious pain to get right. 
 	- Its not exactly lightweight (even with TLS 1.3) when you begin to account for extensions. Ex: client-auth extension.
@@ -17,7 +17,7 @@ What's really needed is a simpler, easy-to-use, lightweight secure channel. A se
 
 More importantly, both pre-requisites must be the default and not tacked-on. 
 
-## HIPv2 is an IETF standard [[RFC7401](https://tools.ietf.org/html/rfc7401)] that offers
+### HIPv2 is an IETF standard [[RFC7401](https://tools.ietf.org/html/rfc7401)] that offers
 
 	- Mutual authentication by default 
         - HIPv2's central idea is - the creation and usage of permanent, unique, cryptographically veriable host/machine identties.
@@ -27,12 +27,12 @@ More importantly, both pre-requisites must be the default and not tacked-on.
 
 The neat thing about HIPv2 is that it does operate at the application-layer but rather is a part of a host's networking stack.
 
-## Advantages:
+### Advantages:
 	- All network traffic flows through the secure channel by default
 	- We can build or extend it. 
         - Example: its much easier to do secure multiparty computation if you can guarantee that all parties possess unique verifiable identities.
 
-## Things to keep in mind if you'd like to get involved:
+### Things to keep in mind if you'd like to get involved:
 - It’s a PoC.
 - My core goals for this project are 
     - **To evaluate whether the entire HIPv2 protocol can be written in safe-rust**
