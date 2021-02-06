@@ -11,9 +11,9 @@ I've been evaluating `TLS replacements` for constrained/embedded systems for a w
 	- Its not exactly lightweight (even with TLS 1.3) when you begin to account for extensions. Ex: client-auth extension.
 	- Certificate sizes.
 
-What's really needed is a simpler, easy-to-use, lightweight secure channel. A secure channel which has 2 pre-requisites. It must allow any 2 communicating parties the ability 
-	1. to mutually authenticate each other
-	2. And provide end-end encryption
+What's really needed is a simpler, easy-to-use, lightweight secure channel. A secure channel with 2 pre-requisites. It must allow any 2 communicating parties the ability 
+	- to mutually authenticate each other and
+	- data-encryption must be end-end
 
 More importantly, both pre-requisites must be the default and not tacked-on. 
 
@@ -25,7 +25,7 @@ More importantly, both pre-requisites must be the default and not tacked-on.
 	- (Bonus) Mobility and Multi-homing 
         - Example: a scenario in which you want to switch over to a backup update server in the event of a failover.
 
-The neat thing about HIPv2 is that it does operate at the application-layer but rather is a part of a host's networking stack.
+The neat thing about HIPv2 is that it operates at the application-layer and is a part of a host's networking stack.
 
 ### Advantages:
 	- All network traffic flows through the secure channel by default
@@ -39,3 +39,6 @@ The neat thing about HIPv2 is that it does operate at the application-layer but 
     - **without the need for heap allocation, making it easier to port to any bare metal environment.**
 - `Performance` has not been considered for now and but it can be optimized after we have a fully working implementation.
 - It uses const_generics which requires nightly as of this writing.
+- In order to achieve its second goal (i.e. zero dynamic memory allocation), `rustdhipv2` depends on `smoltcp` and borrows many of its ideas (such as simplicity above all else). 
+
+**Note:** - I've tried to keep the layout of code similar to that of `smoltcp` but there are a couple of deviations esecially in the `crypto` department. I'll be adding more documentation over the coming weeks and months.
