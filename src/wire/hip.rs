@@ -226,9 +226,8 @@ impl<'a, T: AsRef<[u8]> + ?Sized> HIPPacket<&'a T> {
                         HIPParamsTypes::MACParam(MACParameter::new_checked(param_data).unwrap())
                 }
                 field::HIP_MAC_2_TYPE => {
-                    param_list[idx] = HIPParamsTypes::MAC2Param(MAC2Parameter::new(
-                        HIPParameter::new_unchecked(param_data),
-                    ))
+                    param_list[idx] =
+                        HIPParamsTypes::MAC2Param(MAC2Parameter::new_checked(param_data).unwrap())
                 }
                 field::HIP_SIG_TYPE => {
                     param_list[idx] = HIPParamsTypes::SignatureParam(
@@ -277,7 +276,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> HIPPacket<&'a T> {
                 }
                 field::HIP_ECHO_RESPONSE_UNSIGNED_TYPE => {
                     param_list[idx] = HIPParamsTypes::EchoResponseUnsignedParam(
-                        EchoResponseUnsignedParameter::new_checked(param_data).unwrap()
+                        EchoResponseUnsignedParameter::new_checked(param_data).unwrap(),
                     )
                 }
                 _ => continue,
@@ -548,11 +547,11 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> I2Packet<T> {
 //    Valid control bits: None
 #[derive(Debug, PartialEq, Clone)]
 pub struct R2Packet<T> {
-    packet: HIPPacket<T>,
+    pub packet: HIPPacket<T>,
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> R2Packet<T> {
-    /// Construct a new R2Packet packet struct.
+    /// Construct a new R2 Packet  struct.
     pub fn new(packet: HIPPacket<T>) -> R2Packet<T> {
         R2Packet { packet }
     }
@@ -566,7 +565,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> R2Packet<T> {
     /// In practice, R2 packets have a length of about 208 bytes + or - 16 but
     /// as we could encounter optional `ECHO_REQUEST_*` parameters in a HIP base
     /// exchange, I chose a buffer size of 512 bytes or 64 quad words.
-    pub fn new_r2packet(&mut self) -> Result<R2Packet<[u8; 512]>> {
+    pub fn new_r2packet() -> Result<R2Packet<[u8; 512]>> {
         let mut fixed_hip_header = HIPPacket::new_checked([0; 512])?;
         fixed_hip_header.set_packet_type(field::HIP_R2_PACKET as u8);
         fixed_hip_header.set_header_length((field::HIP_HEADER_LENGTH as u8 - 8) / 8);
@@ -584,6 +583,11 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> R2Packet<T> {
             .copy_from_slice(param_as_slice);
         let new_len = fixed_header_len as usize + param_len;
         self.packet.set_header_length((new_len as u8) / 8);
+    }
+
+    /// Returns a ref to the underlying buffer.
+    pub fn inner_ref(&self) -> &T {
+        &self.packet.buffer
     }
 }
 
@@ -774,6 +778,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> CloseAckPacket<T> {
         self.packet.set_header_length((new_len as u8) / 8);
     }
 }
+
 /// A read/write wrapper around a generic HIP parameter buffer.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct HIPParameter<T> {
@@ -835,10 +840,20 @@ impl<T: AsMut<[u8]>> HIPParameter<T> {
     }
 }
 
+/// A marker trait for all HIP parameters
+pub trait ParamMarker<'a, T> {
+    fn inner_ref(&self) -> &'_ T;
+}
 /// A read/write wrapper around a R1Counter parameter buffer.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct R1CounterParam<T> {
     buffer: HIPParameter<T>,
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for R1CounterParam<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
 }
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a R1CounterParam<T>> for R1CounterParam<&'a [u8]> {
@@ -1085,6 +1100,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> PuzzleParameter<T> {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct SolutionParameter<T> {
     buffer: HIPParameter<T>,
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for SolutionParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
 }
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a SolutionParameter<T>> for SolutionParameter<&'a [u8]> {
@@ -1348,6 +1369,12 @@ pub struct DHParameter<T> {
     buffer: HIPParameter<T>,
 }
 
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for DHParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a DHParameter<T>> for DHParameter<&'a [u8]> {
     fn fromtype(from: &'a DHParameter<T>) -> Result<Self> {
         DHParameter::new_checked(from.inner_ref().as_ref())
@@ -1504,6 +1531,12 @@ pub struct CipherParameter<T> {
     buffer: HIPParameter<T>,
 }
 
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for CipherParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a CipherParameter<T>> for CipherParameter<&'a [u8]> {
     fn fromtype(from: &'a CipherParameter<T>) -> Result<Self> {
         CipherParameter::new_checked(from.inner_ref().as_ref())
@@ -1622,6 +1655,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> CipherParameter<T> {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct HostIdParameter<T> {
     buffer: HIPParameter<T>,
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for HostIdParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
 }
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a HostIdParameter<T>> for HostIdParameter<&'a [u8]> {
@@ -1951,6 +1990,12 @@ pub struct TransportListParameter<T> {
     buffer: HIPParameter<T>,
 }
 
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for TransportListParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a TransportListParameter<T>>
     for TransportListParameter<&'a [u8]>
 {
@@ -2070,9 +2115,13 @@ pub struct MACParameter<T> {
     buffer: HIPParameter<T>,
 }
 
-impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a MACParameter<T>>
-    for MACParameter<&'a [u8]>
-{
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for MACParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a MACParameter<T>> for MACParameter<&'a [u8]> {
     fn fromtype(from: &'a MACParameter<T>) -> Result<Self> {
         MACParameter::new_checked(from.inner_ref().as_ref())
     }
@@ -2180,15 +2229,65 @@ pub struct MAC2Parameter<T> {
     buffer: HIPParameter<T>,
 }
 
-impl<T> MAC2Parameter<T> {
-    /// Construct a new unchecked MAC2Parameter packet structure.
-    #[inline]
-    pub fn new(buffer: HIPParameter<T>) -> MAC2Parameter<T> {
-        MAC2Parameter { buffer }
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for MAC2Parameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a MAC2Parameter<T>> for MAC2Parameter<&'a [u8]> {
+    fn fromtype(from: &'a MAC2Parameter<T>) -> Result<Self> {
+        MAC2Parameter::new_checked(from.inner_ref().as_ref())
     }
 }
 
 impl<T: AsRef<[u8]>> MAC2Parameter<T> {
+    /// Construct a new unchecked MAC2Parameter packet structure.
+    #[inline]
+    pub fn new_unchecked(buffer: HIPParameter<T>) -> MAC2Parameter<T> {
+        MAC2Parameter { buffer }
+    }
+
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked(buffer: T) -> Result<Self> {
+        let packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        Ok(packet)
+    }
+
+    /// Ensure that no accessor method will panic if called.
+    /// Returns `Err(HIPError::Bufferistooshort)` if the buffer is too short.
+    /// Returns `Err(HIPError::IncorrectHeaderLength)` if the header length
+    /// field has a value smaller than the minimal header length.
+    ///
+    /// The result of this check is invalidated by calling [set_length].
+    ///
+    /// [set_length]: #method.set_length
+    pub fn check_len(&self) -> Result<()> {
+        let len = self.buffer.buffer.as_ref().len();
+        if len < field::HIP_MAC_2_OFFSET.start {
+            Err(HIPError::Bufferistooshort)
+        } else {
+            let param_len =
+                (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+            if len < param_len {
+                Err(HIPError::Bufferistooshort)
+            } else if param_len < field::HIP_MAC_2_OFFSET.start {
+                Err(HIPError::IncorrectHeaderLength)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    /// Returns a ref to the underlying buffer.
+    pub fn inner_ref(&self) -> &T {
+        &self.buffer.buffer
+    }
+
     /// Returns HMAC 2 computed over the HIP packet, , excluding the HIP_MAC_2
     /// parameter and any following parameters such as HIP_SIGNATURE,
     /// HIP_SIGNATURE_2, ECHO_REQUEST_UNSIGNED, or ECHO_RESPONSE_UNSIGNED,
@@ -2373,6 +2472,14 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> SignatureParameter<T> {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Signature2Parameter<T> {
     buffer: HIPParameter<T>,
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a Signature2Parameter<T>>
+    for Signature2Parameter<&'a [u8]>
+{
+    fn fromtype(from: &'a Signature2Parameter<T>) -> Result<Self> {
+        Signature2Parameter::new_checked(from.inner_ref().as_ref())
+    }
 }
 
 impl<T: AsRef<[u8]>> Signature2Parameter<T> {
@@ -2968,7 +3075,9 @@ pub struct EchoResponseSignedParameter<T> {
     buffer: HIPParameter<T>,
 }
 
-impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a EchoResponseSignedParameter<T>> for EchoResponseSignedParameter<&'a [u8]> {
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a EchoResponseSignedParameter<T>>
+    for EchoResponseSignedParameter<&'a [u8]>
+{
     fn fromtype(from: &'a EchoResponseSignedParameter<T>) -> Result<Self> {
         EchoResponseSignedParameter::new_checked(from.inner_ref().as_ref())
     }
@@ -3077,7 +3186,9 @@ pub struct EchoResponseUnsignedParameter<T> {
     buffer: HIPParameter<T>,
 }
 
-impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a EchoResponseUnsignedParameter<T>> for EchoResponseUnsignedParameter<&'a [u8]> {
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a EchoResponseUnsignedParameter<T>>
+    for EchoResponseUnsignedParameter<&'a [u8]>
+{
     fn fromtype(from: &'a EchoResponseUnsignedParameter<T>) -> Result<Self> {
         EchoResponseUnsignedParameter::new_checked(from.inner_ref().as_ref())
     }
@@ -3093,7 +3204,6 @@ impl<T> EchoResponseUnsignedParameter<T> {
 }
 
 impl<T: AsRef<[u8]>> EchoResponseUnsignedParameter<T> {
-
     /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
     /// [new_unchecked]: #method.new_unchecked
@@ -3185,6 +3295,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> EchoResponseUnsignedParameter<T> {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct ESPTransformParameter<T> {
     buffer: HIPParameter<T>,
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for ESPTransformParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
 }
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a ESPTransformParameter<T>>
@@ -3301,9 +3417,13 @@ pub struct ESPInfoParameter<T> {
     buffer: HIPParameter<T>,
 }
 
-impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a ESPInfoParameter<T>>
-    for ESPInfoParameter<&'a [u8]>
-{
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for ESPInfoParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a ESPInfoParameter<T>> for ESPInfoParameter<&'a [u8]> {
     fn fromtype(from: &'a ESPInfoParameter<T>) -> Result<Self> {
         ESPInfoParameter::new_checked(from.inner_ref().as_ref())
     }

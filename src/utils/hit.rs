@@ -57,11 +57,11 @@ impl HIT {
         // trunc_bytes
     }
 
-    /// Input      :=  any bitstring
-    /// OGA ID     :=  4-bit Orchid Generation Algorithm identifier
-    /// Hash Input :=  Context ID | Input
-    /// Hash       :=  Hash_function( Hash Input )
-    /// ORCHID     :=  Prefix | OGA ID | Encode_96( Hash )
+    /// - Input      :=  any bitstring
+    /// - OGA ID     :=  4-bit Orchid Generation Algorithm identifier
+    /// - Hash Input :=  Context ID | Input
+    /// - Hash       :=  Hash_function( Hash Input )
+    /// - ORCHID     :=  Prefix | OGA ID | Encode_96( Hash )
     ///
     /// The N represents the `Hash Input` length. For Ex: we'd use an `N value`
     /// of `96 + 16`
