@@ -1,6 +1,6 @@
 
 ### A quick note: This is a WIP
-I'm a security consultant by profession. This is my very first attempt at putting together a full fledged networking-related library. So, please be feel free to point out if something's amiss. 
+I'm a security consultant by profession. This is my very first attempt at putting together a full fledged networking-related library. Please be feel free to chime-in if something's amiss. 
 
 ### Context: 
 I've been evaluating `TLS replacements` for constrained/embedded systems for a while now. Embedded systems have fewer (yet precise) security requirements, owing to available resources and TLS is not exactly a good fit (for a number of reasons).
@@ -13,7 +13,7 @@ I've been evaluating `TLS replacements` for constrained/embedded systems for a w
 
 What's really needed is a simpler, easy-to-use, lightweight secure channel. A secure channel with 2 pre-requisites. It must allow any 2 communicating parties the ability 
 	- to mutually authenticate each other and
-	- data-encryption must be end-end
+	- end-end data encryption
 
 More importantly, both pre-requisites must be the default and not tacked-on. 
 
@@ -41,4 +41,6 @@ The neat thing about HIPv2 is that it operates at the application-layer and is a
 - It uses const_generics which requires nightly as of this writing.
 - In order to achieve its second goal (i.e. zero dynamic memory allocation), `rustdhipv2` depends on `smoltcp` and borrows many of its ideas (such as simplicity above all else). 
 
-**Note:** - I've tried to keep the layout of code similar to that of `smoltcp` but there are a couple of deviations esecially in the `crypto` department. I'll be adding more documentation over the coming weeks and months.
+**Note:** 
+- I've tried to keep the layout of code similar to that of `smoltcp` but there are a couple of deviations in the `crypto` department. 
+- I'll be adding more documentation over the coming weeks and months.
