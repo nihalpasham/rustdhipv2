@@ -538,7 +538,7 @@ pub struct StateVariables {
 	pub i2_packet: Option<I2Pkt>,
 	update_seq: u8,
 	is_responder: bool,
-	data_timeout: Instant,
+	pub data_timeout: Instant,
 	pub ec_complete_timeout: Instant,
 	closing_timeout: Instant,
 	closed_timeout:  Instant,

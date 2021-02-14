@@ -2474,6 +2474,12 @@ pub struct Signature2Parameter<T> {
     buffer: HIPParameter<T>,
 }
 
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for Signature2Parameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a Signature2Parameter<T>>
     for Signature2Parameter<&'a [u8]>
 {

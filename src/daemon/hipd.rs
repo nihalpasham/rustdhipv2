@@ -44,6 +44,7 @@ pub struct HIPDaemon<'a> {
     state_vars_map: Storage<'a, StateVariables>,
     key_info_map: Storage<'a, KeyInfo>,
     sa_map: SecurityAssociationDatabase<'a>,
+    selected_esp_transform: Option<u8>,
 }
 
 impl<'a> HIPDaemon<'a> {
@@ -72,6 +73,7 @@ impl<'a> HIPDaemon<'a> {
             state_vars_map: Storage::new(state_vars_map),
             key_info_map: Storage::new(key_info_map),
             sa_map: SecurityAssociationDatabase::new(sa_map),
+            selected_esp_transform: None,
         }
     }
 
@@ -516,8 +518,8 @@ impl<'a> HIPDaemon<'a> {
                     (_, _) => unreachable!(),
                 }
 
+                // Add R1 parameters. List of mandatory parameters in an R1 packet
                 #[rustfmt::skip]
-				// Add R1 parameters. List of mandatory parameters in an R1 packet
 				match (puzzle_param, dh_param, hi_param, signature_param) {
 					(
 						(HIPParamsTypes::PuzzleParam(puzzle_256), HIPParamsTypes::Default),
@@ -1157,6 +1159,7 @@ impl<'a> HIPDaemon<'a> {
                 for (idx, group_id) in offered_esp_transforms.iter().enumerate() {
                     if supported_esp_transform_suits.contains(group_id) {
                         selected_esp_transform = Some(offered_esp_transforms[idx]);
+                        self.selected_esp_transform = selected_esp_transform;
                         break;
                     }
                 }
@@ -2886,6 +2889,346 @@ impl<'a> HIPDaemon<'a> {
                     let sv = self.state_vars_map.get_mut(&ihit, &rhit)?;
                     sv.map(|s| {
                         s.ec_complete_timeout = Instant::now()
+                            + Duration {
+                                millis: (120 * 1000) as u64,
+                            }
+                    });
+                }
+            }
+
+            HIP_R2_PACKET => {
+                if hip_state
+                    .ok_or_else(|| HIPError::__Nonexhaustive)?
+                    .is_unassociated()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_i1_sent()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_r2_sent()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_established()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_closing()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_closed()
+                {
+                    hip_debug!("Dropping the packet ");
+                }
+
+                hip_debug!("Got R2 Packet");
+
+                let mut cipher_alg = 0;
+                let mut keymat = [0u8; 800];
+                let hmac_alg = HIT::get_responders_oga_id(&ihit);
+                let is_hit_smaller = Utils::is_hit_smaller(&rhit, &ihit);
+
+                if is_hit_smaller {
+                    match self.cipher_map.get(&rhit, &ihit)? {
+                        Some(val) => match val {
+                            Some(val) => cipher_alg = *val,
+                            None => {}
+                        },
+                        None => {}
+                    }
+                } else {
+                    match self.cipher_map.get(&ihit, &rhit)? {
+                        Some(val) => match val {
+                            Some(val) => cipher_alg = *val,
+                            None => {}
+                        },
+                        None => {}
+                    }
+                }
+
+                if is_hit_smaller {
+                    match self.keymat_map.get(&rhit, &ihit)? {
+                        Some(val) => keymat = *val,
+                        None => {}
+                    }
+                } else {
+                    match self.keymat_map.get(&rhit, &ihit)? {
+                        Some(val) => keymat = *val,
+                        None => {}
+                    }
+                }
+
+                let keymat_len_octets = Utils::compute_keymat_len(hmac_alg, cipher_alg);
+                let (aes_key, hmac_key) = Utils::get_keys(
+                    &keymat[..keymat_len_octets as usize],
+                    hmac_alg,
+                    cipher_alg,
+                    &ihit,
+                    &rhit,
+                )?;
+
+                let hmac = HMACFactory::get(hmac_alg);
+                let param_list = hip_packet
+                    .get_parameters()
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?;
+                let mut esp_info_param = None;
+                let mut hmac_param = None;
+                let mut signature_param = None;
+
+                // let initiators_spi = None;
+                let mut responders_spi = None;
+                let mut keymat_index = None;
+
+                param_list.iter().for_each(|param| match param {
+                    HIPParamsTypes::ESPInfoParam(val) => {
+                        hip_debug!("ESP Info parameter");
+                        esp_info_param = Some(val);
+                    }
+                    HIPParamsTypes::MAC2Param(val) => {
+                        hip_debug!("Mac2 parameter");
+                        hmac_param = Some(val);
+                    }
+                    HIPParamsTypes::Signature2Param(val) => {
+                        hip_debug!("Signature2 parameter");
+                        signature_param = Some(val);
+                    }
+                    _ => {}
+                });
+
+                // Check if any of the mandatory parameters are missing.
+                if esp_info_param.is_none() {
+                    hip_trace!("ESP Info Parameter not sent");
+                } else if hmac_param.is_none() {
+                    hip_trace!("MAC2 Parameter not sent");
+                } else if signature_param.is_none() {
+                    hip_trace!("Signature2 Parameter not sent");
+                }
+
+                // Construct a new R2 Packet
+                let mut hip_r2_packet = R2Packet::<[u8; 512]>::new_r2packet()?;
+                hip_r2_packet.packet.set_senders_hit(&rhit);
+                hip_r2_packet.packet.set_receivers_hit(&ihit);
+                hip_r2_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
+                hip_r2_packet.packet.set_version(HIP_VERSION as u8);
+
+                if let Some(val) = esp_info_param {
+                    hip_r2_packet.add_param(HIPParamsTypes::ESPInfoParam(
+                        ESPInfoParameter::fromtype(val)?,
+                    ));
+                }
+
+                let byte_len = hip_r2_packet.packet.get_header_length() * 8 + 8;
+                match hmac_alg {
+                    0x1 => {
+                        if &SHA256HMAC::hmac_256(
+                            &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize],
+                            hmac_key,
+                        ) != hmac_param
+                            .ok_or_else(|| HIPError::FieldisNOTSet)?
+                            .get_hmac2()?
+                        {
+                            hip_debug!("Invalid HMAC256. Dropping the packet");
+                        }
+                    }
+                    0x2 => {
+                        if &SHA384HMAC::hmac_384(
+                            &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize],
+                            hmac_key,
+                        ) != hmac_param
+                            .ok_or_else(|| HIPError::FieldisNOTSet)?
+                            .get_hmac2()?
+                        {
+                            hip_debug!("Invalid HMAC384. Dropping the packet");
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                hip_debug!("HMAC is ok. Compute signature");
+
+                let hmac_param_len = hmac_param
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .inner_ref()
+                    .as_ref()
+                    .len();
+                let hmac_param_bytes = hmac_param
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .inner_ref()
+                    .as_ref();
+                let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
+                let pkt_len = current_r2pkt_len as usize * 8 + hmac_param_len;
+                hip_r2_packet.packet.set_header_length((pkt_len / 8) as u8);
+                let mut bytes_to_verify: Vec<u8, U512> = Vec::new();
+                for byte in hip_r2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
+                    .iter()
+                    .chain(hmac_param_bytes.iter())
+                {
+                    bytes_to_verify
+                        .push(*byte)
+                        .map_err(|_| HIPError::Bufferistooshort)?;
+                }
+
+                let mut responder_pubkey256 = [0; 64];
+                let mut responder_pubkey384 = [0; 96];
+
+                let responder_pubkey = self.pubkey_map.get(&ihit, &rhit)?;
+                // Get responder pubkey from our pubkey_map
+                let pubkey_len = match responder_pubkey {
+                    Some(val) => match val {
+                        ResponderPubKey::Pk256(val) => {
+                            responder_pubkey256 = *val;
+                            0x20
+                        }
+                        ResponderPubKey::Pk384(val) => {
+                            responder_pubkey384 = *val;
+                            0x30
+                        }
+                    },
+                    None => 0x0,
+                };
+
+                match pubkey_len {
+                    0x20 => {
+                        let verifier = ECDSASHA256Signature([0; 32], responder_pubkey256);
+                        let verified =
+                            verifier.verify(&bytes_to_verify[..], option_as_ref(signature_param)?);
+                        if !verified? {
+                            hip_trace!("Invalid signature in R2 packet. Dropping the packet");
+                        } else {
+                            hip_debug!("Signature is correct");
+                        }
+                    }
+                    0x30 => {
+                        let verifier = ECDSASHA384Signature(
+                            [0; 48],
+                            EncodedPointP384::from_bytes(responder_pubkey384)
+                                .map_err(|_| HIPError::InvalidEncoding)?,
+                        );
+                        let verified =
+                            verifier.verify(&bytes_to_verify[..], option_as_ref(signature_param)?);
+                        if !verified? {
+                            hip_trace!("Invalid signature in R2 packet. Dropping the packet");
+                        } else {
+                            hip_debug!("Signature is correct");
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                responders_spi = esp_info_param.map(|esp_info| esp_info.get_new_spi());
+                keymat_index = esp_info_param.map(|esp_info| esp_info.get_keymat_index());
+
+                hip_debug!("Processing R2 packet");
+                hip_debug!("Ending HIP BEX");
+
+                // hex formatted string of dst IPv6 address
+                let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
+                let src_str = Utils::hex_formatted_hit_bytes(Some(&src.0), None)?;
+
+                hip_debug!("Setting SA records...{:?} - {:?}", src_str, dst_str);
+
+                let (cipher, hmac) = ESPTransformFactory::get(
+                    self.selected_esp_transform
+                        .ok_or_else(|| HIPError::Illegal)?,
+                );
+
+                // Create a new SA record and save it to out sa_map
+                match cipher {
+                    CipherTypes::AES128(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index.ok_or_else(|| HIPError::IncorrectLength)?? as u8,
+                            0x1, // hmac256 id
+                            0x2, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record = SecurityAssociationRecord::new(
+                            0x2, 0x1, aes_key, hmac_key, src.0, dst.0,
+                        );
+                        sa_record
+                            .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&rhit), Some(&ihit))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    CipherTypes::AES256(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index.ok_or_else(|| HIPError::IncorrectLength)?? as u8,
+                            0x1, // hmac256 id
+                            0x4, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record = SecurityAssociationRecord::new(
+                            0x2, 0x1, aes_key, hmac_key, src.0, dst.0,
+                        );
+                        sa_record
+                            .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&rhit), Some(&ihit))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                // Save this extra record to the sa_map for debugging purposes
+                match cipher {
+                    CipherTypes::AES128(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index.ok_or_else(|| HIPError::IncorrectLength)?? as u8,
+                            0x1, // hmac256 id
+                            0x2, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record =
+                            SecurityAssociationRecord::new(0x2, 0x1, aes_key, hmac_key, rhit, ihit);
+                        sa_record
+                            .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&dst.0), Some(&src.0))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    CipherTypes::AES256(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index.ok_or_else(|| HIPError::IncorrectLength)?? as u8,
+                            0x1, // hmac256 id
+                            0x4, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record =
+                            SecurityAssociationRecord::new(0x2, 0x1, aes_key, hmac_key, rhit, ihit);
+                        sa_record
+                            .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&dst.0), Some(&src.0))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                // Transition to an Established state
+                hip_state.map(|state| state.established());
+
+                if is_hit_smaller {
+                    let sv = self.state_vars_map.get_mut(&rhit, &ihit)?;
+                    sv.map(|s| {
+                        s.data_timeout = Instant::now()
+                            + Duration {
+                                millis: (120 * 1000) as u64,
+                            }
+                    });
+                } else {
+                    let sv = self.state_vars_map.get_mut(&ihit, &rhit)?;
+                    sv.map(|s| {
+                        s.data_timeout = Instant::now()
                             + Duration {
                                 millis: (120 * 1000) as u64,
                             }

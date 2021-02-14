@@ -7,13 +7,11 @@ I've been evaluating `TLS replacements` for constrained/embedded systems for a w
 
 ### Why not TLS:
 	- Bloated with a plethora of extensions 
-	- Mutual TLS authentication is NOT the default and a serious pain to get right. 
+	- Mutual TLS authentication is NOT the default and a serious pain to get right. (especially in a constrained environment)
 	- Its not exactly lightweight (even with TLS 1.3) when you begin to account for extensions. Ex: client-auth extension.
 	- Certificate sizes.
 
-What's really needed is a simpler, easy-to-use, lightweight secure channel. A secure channel with 2 pre-requisites. It must allow any 2 communicating parties the ability 
-	- to mutually authenticate each other and
-	- end-end data encryption
+What's really needed is a simpler, easy-to-use, lightweight secure channel. A secure channel with 2 pre-requisites. It must allow any 2 communicating parties the ability `to mutually authenticate each other coupled with end-end data encryption.`
 
 More importantly, both pre-requisites must be the default and not tacked-on. 
 
