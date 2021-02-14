@@ -339,7 +339,7 @@ impl<'a, Q> Storage<'a, Q> {
         Storage { store }
     }
 
-    /// Returns an option containing the `state value` if the key exists, else
+    /// Returns a result containing an optional `ref` to the `state value` if the key exists, else
     /// returns a `None`.
     ///
     /// The key is constructed by concatenating the raw `initiator and responder
@@ -367,6 +367,37 @@ impl<'a, Q> Storage<'a, Q> {
             Ok(None)
         } else {
             Ok(self.store.map_store.get(&HeaplessString { s: key }))
+        }
+    }
+
+    /// Returns a result containing an optional `mutable ref` to the `state value` if the key exists, else
+    /// returns a `None`.
+    ///
+    /// The key is constructed by concatenating the raw `initiator and responder
+    /// hit` bytes and hex-formatting the concatenated byte-string.
+    ///
+    /// Note - `HeaplessString` is just a wrapper around an actual `heapless
+    /// String<>` type from the heapless crate.
+    pub fn get_mut(&mut self, ihit: &[u8], rhit: &[u8]) -> Result<Option<&mut Q>> {
+        let key = match Utils::hex_formatted_hit_bytes(Some(ihit), Some(rhit)) {
+            Ok(v) => {
+                if let HeaplessStringTypes::U64(key) = v {
+                    key
+                } else {
+                    return Err(HIPError::__Nonexhaustive);
+                }
+            }
+            Err(e) => return Err(e),
+        };
+        if self
+            .store
+            .map_store
+            .get_mut(&HeaplessString { s: key.clone() })
+            .is_none()
+        {
+            Ok(None)
+        } else {
+            Ok(self.store.map_store.get_mut(&HeaplessString { s: key }))
         }
     }
 
@@ -480,8 +511,15 @@ impl<'a, Q> Storage<'a, Q> {
 
 use crate::time::Instant;
 use core::convert::TryInto;
+// use heapless::Vec;
 
 // const DEFAULT_TIMEOUT_SECONDS: Instant = Instant::from_secs(5);
+
+#[derive(Debug, Clone, Copy)]
+pub struct I2Pkt {
+    pub buffer: [u8; 512],
+    pub len: u16,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy)]
@@ -492,49 +530,80 @@ pub struct StateVariables {
 	src:  [u8; 16],
 	dst:  [u8; 16],
 	// timer: Instant,
-	update_timeout: Option<Duration>,
-	i1_timeout: Option<Duration>,
+	update_timeout: Instant,
+	i1_timeout: Instant,
 	i1_retries: u8,
-	i2_timeout: Option<Duration>,
+	i2_timeout: Instant,
 	i2_retries: u8,
-	// i2_packet: None,
+	pub i2_packet: Option<I2Pkt>,
 	update_seq: u8,
 	is_responder: bool,
-	data_timeout: Option<Duration>,
-	ec_complete_timeout: Option<Duration>,
-	closing_timeout: Option<Duration>,
-	closed_timeout:  Option<Duration>,
-	failed_timeout:  Option<Duration>,
+	pub data_timeout: Instant,
+	pub ec_complete_timeout: Instant,
+	closing_timeout: Instant,
+	closed_timeout:  Instant,
+	failed_timeout:  Instant,
 }
 
-#[rustfmt::skip]
+// #[rustfmt::skip]
 impl StateVariables {
-	pub fn new(state: State, ihit: &[u8], rhit: &[u8], src: &[u8], dst: &[u8]) -> Self {
-		StateVariables {
-			state: State::Unassociated,
-			rhit: rhit.try_into().unwrap(),
-			ihit: ihit.try_into().unwrap(),
-			src: src.try_into().unwrap(),
-			dst: dst.try_into().unwrap(),
-			// timer: Instant,
-			update_timeout: Some(Duration {millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,}),
-			i1_timeout: Some(Duration {millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,}),
-			i1_retries: 0,
-			i2_timeout: Some(Duration {millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,}),
-			i2_retries: 0,
-			// i2_packet: None,
-			update_seq: 0,
-			is_responder: true,
-			data_timeout: Some(Duration {millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,}),
-			ec_complete_timeout: Some(Duration {millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,}),
-			closing_timeout: Some(Duration {millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,}),
-			closed_timeout: Some(Duration {millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,}),
-			failed_timeout: Some(Duration {millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,}),
-		}
-	}
+    pub fn new(
+        state: State,
+        ihit: &[u8],
+        rhit: &[u8],
+        src: &[u8],
+        dst: &[u8],
+        i2_packet: Option<I2Pkt>,
+    ) -> Self {
+        StateVariables {
+            state: State::Unassociated,
+            rhit: rhit.try_into().unwrap(),
+            ihit: ihit.try_into().unwrap(),
+            src: src.try_into().unwrap(),
+            dst: dst.try_into().unwrap(),
+            // timer: Instant,
+            update_timeout: Instant::now()
+                + Duration {
+                    millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,
+                },
+            i1_timeout: Instant::now()
+                + Duration {
+                    millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,
+                },
+            i1_retries: 0,
+            i2_timeout: Instant::now()
+                + Duration {
+                    millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,
+                },
+            i2_retries: 0,
+            i2_packet,
+            update_seq: 0,
+            is_responder: true,
+            data_timeout: Instant::now()
+                + Duration {
+                    millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,
+                },
+            ec_complete_timeout: Instant::now()
+                + Duration {
+                    millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,
+                },
+            closing_timeout: Instant::now()
+                + Duration {
+                    millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,
+                },
+            closed_timeout: Instant::now()
+                + Duration {
+                    millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,
+                },
+            failed_timeout: Instant::now()
+                + Duration {
+                    millis: (DEFAULT_TIMEOUT_SECONDS * 1000) as u64,
+                },
+        }
+    }
 }
 
-pub trait AsByteArray<const N:usize> {
+pub trait AsByteArray<const N: usize> {
     fn as_bytearray(&self) -> [u8; N];
 }
 #[derive(Debug, Clone, Copy)]
@@ -580,6 +649,7 @@ pub enum ResponderPubKey {
 pub enum InitiatorDHKeys {
     EcdhP256(SkP256, PkP256),
     EcdhP384(SkP384, PkP384),
+    Default,
 }
 
 #[cfg(test)]

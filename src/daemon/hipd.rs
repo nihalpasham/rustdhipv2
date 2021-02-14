@@ -9,7 +9,7 @@ use crate::{storage::HIPState::*, utils::puzzles};
 
 use crate::crypto::{digest::*, ecdh::*, factory::*, signatures::*};
 use crate::time::*;
-use crate::utils::{hi::*, hit::*, misc::Utils, puzzles::*};
+use crate::utils::{hi::*, hit::*, misc::*, puzzles::*};
 use crate::wire::constants::field::*;
 use crate::wire::hip::*;
 use crate::{HIPError, Result};
@@ -21,6 +21,14 @@ use heapless::{consts::*, Vec};
 // use smoltcp::time::{Duration, Instant};
 use smoltcp::wire::{IpProtocol, Ipv6Address, Ipv6Packet};
 
+pub fn option_as_ref<'a, Q: 'a + ParamMarker<'a, T>, T: 'a + AsRef<[u8]>>(
+    val: Option<&'a Q>,
+) -> Result<&'a [u8]> {
+    Ok(val
+        .ok_or_else(|| HIPError::FieldisNOTSet)?
+        .inner_ref()
+        .as_ref())
+}
 ///
 pub struct HIPDaemon<'a> {
     pubkey: Option<&'a [u8]>,
@@ -36,6 +44,7 @@ pub struct HIPDaemon<'a> {
     state_vars_map: Storage<'a, StateVariables>,
     key_info_map: Storage<'a, KeyInfo>,
     sa_map: SecurityAssociationDatabase<'a>,
+    selected_esp_transform: Option<u8>,
 }
 
 impl<'a> HIPDaemon<'a> {
@@ -48,7 +57,7 @@ impl<'a> HIPDaemon<'a> {
         pubkey_map: &'a mut GenericValueStore<ResponderPubKey>,
         state_vars_map: &'a mut GenericValueStore<StateVariables>,
         key_info_map: &'a mut GenericValueStore<KeyInfo>,
-        sa_map: &'a mut SARecordStore<'a>,
+        sa_map: &'a mut SARecordStore,
     ) -> Self {
         HIPDaemon {
             pubkey: None,
@@ -64,6 +73,7 @@ impl<'a> HIPDaemon<'a> {
             state_vars_map: Storage::new(state_vars_map),
             key_info_map: Storage::new(key_info_map),
             sa_map: SecurityAssociationDatabase::new(sa_map),
+            selected_esp_transform: None,
         }
     }
 
@@ -160,6 +170,7 @@ impl<'a> HIPDaemon<'a> {
                             &rhit,
                             &src.0,
                             &dst.0,
+                            None,
                         ),
                     );
                 } else {
@@ -174,6 +185,7 @@ impl<'a> HIPDaemon<'a> {
                             &rhit,
                             &src.0,
                             &dst.0,
+                            None,
                         ),
                     );
                 }
@@ -506,8 +518,8 @@ impl<'a> HIPDaemon<'a> {
                     (_, _) => unreachable!(),
                 }
 
+                // Add R1 parameters. List of mandatory parameters in an R1 packet
                 #[rustfmt::skip]
-				// Add R1 parameters. List of mandatory parameters in an R1 packet
 				match (puzzle_param, dh_param, hi_param, signature_param) {
 					(
 						(HIPParamsTypes::PuzzleParam(puzzle_256), HIPParamsTypes::Default),
@@ -551,8 +563,10 @@ impl<'a> HIPDaemon<'a> {
                 let ipv6_payload_len = (hip_r1_packet.packet.get_header_length() * 8 + 8) as u16;
                 let ipv6_fixed_header_len = 0x28u8;
                 let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
-                let mut ipv6_packet = Ipv6Packet::new_checked(&mut ipv6_buffer)
-                    .map_err(|_| HIPError::Bufferistooshort)?;
+                let mut ipv6_packet = Ipv6Packet::new_checked(
+                    &mut ipv6_buffer[..ipv6_fixed_header_len as usize + ipv6_payload_len as usize],
+                )
+                .map_err(|_| HIPError::Bufferistooshort)?;
                 ipv6_packet.set_version(IPV6_VERSION as u8);
                 ipv6_packet.set_dst_addr(dst);
                 ipv6_packet.set_src_addr(src);
@@ -670,7 +684,7 @@ impl<'a> HIPDaemon<'a> {
                             };
                             match hi[0..2] {
                                 [0, 1] => {
-                                    let responders_hit = HIT::compute_hit::<32>(hi, oga_id);
+                                    let responders_hit = HIT::compute_hit::<80>(hi, oga);
                                     hip_debug!("Responder's HIT: {:?}", responders_hit);
                                     hip_debug!("Initiator's HIT: {:?}", &ihit);
                                     hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
@@ -683,7 +697,7 @@ impl<'a> HIPDaemon<'a> {
                                     }
                                 }
                                 [0, 2] => {
-                                    let responders_hit = HIT::compute_hit::<48>(hi, oga_id);
+                                    let responders_hit = HIT::compute_hit::<112>(hi, oga);
                                     hip_debug!("Responder's HIT: {:?}", responders_hit);
                                     hip_debug!("Initiator's HIT: {:?}", &ihit);
                                     hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
@@ -823,7 +837,7 @@ impl<'a> HIPDaemon<'a> {
                         &rhash,
                     );
                     jrandom = jrand.try_into().map_err(|_| HIPError::__Nonexhaustive)?;
-                    hip_debug!("Puzzle was solved and verified");
+                    hip_debug!("Puzzle was solved");
                 }
                 // Check if the time taken to solve the puzzle is greater than the `timer duration`.
                 // If yes, drop the packet and set state to unassociated.
@@ -833,12 +847,25 @@ impl<'a> HIPDaemon<'a> {
                     hip_state.map(|state| state.unassociated());
                 }
 
-                // Echo Response Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
+                // Echo Response Signed Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
                 let mut echo_signed = EchoResponseSignedParameter::new_checked([0; 36])?;
                 echo_signed.init_echoresponse_signed_param();
-                echo_signed.set_opaque_data(
-                    echo_request_signed_opaque_data.ok_or_else(|| HIPError::FieldisNOTSet)??,
-                );
+                if echo_request_signed_opaque_data.is_some() {
+                    echo_signed.set_opaque_data(
+                        echo_request_signed_opaque_data
+                            .ok_or_else(|| HIPError::FieldisNOTSet)??,
+                    );
+                }
+                // Echo Response Unsigned Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
+                let mut echo_unsigned = EchoResponseUnsignedParameter::new_checked([0; 36])?;
+                echo_unsigned.init_echoresponse_unsigned_param();
+                if echo_request_unisgned_opaque_data.is_some() {
+                    echo_unsigned.set_opaque_data(
+                        echo_request_unisgned_opaque_data
+                            .ok_or_else(|| HIPError::FieldisNOTSet)??,
+                    );
+                }
+
                 let mut param_buf: Vec<u8, U512> = Vec::new();
                 #[rustfmt::skip]
                 match (r1_counter_param, echo_request_signed_opaque_data) {
@@ -1132,6 +1159,7 @@ impl<'a> HIPDaemon<'a> {
                 for (idx, group_id) in offered_esp_transforms.iter().enumerate() {
                     if supported_esp_transform_suits.contains(group_id) {
                         selected_esp_transform = Some(offered_esp_transforms[idx]);
+                        self.selected_esp_transform = selected_esp_transform;
                         break;
                     }
                 }
@@ -1143,12 +1171,12 @@ impl<'a> HIPDaemon<'a> {
                 // Output from kdf function i.e. key-material
                 // Note - you only need the first keymat_len_octet bytes from the output
                 let mut keymat = [0; 800];
+                let keymat_len_octets = Utils::compute_keymat_len(
+                    hmac_alg,
+                    selected_cipher.ok_or_else(|| HIPError::FieldisNOTSet)?,
+                );
 
                 if ss256.is_some() {
-                    let keymat_len_octets = Utils::compute_keymat_len(
-                        hmac_alg,
-                        selected_cipher.ok_or_else(|| HIPError::FieldisNOTSet)?,
-                    );
                     keymat = Utils::kdf(
                         hmac_alg,
                         &salt_buffer,
@@ -1157,10 +1185,6 @@ impl<'a> HIPDaemon<'a> {
                         keymat_len_octets,
                     );
                 } else if ss384.is_some() {
-                    let keymat_len_octets = Utils::compute_keymat_len(
-                        hmac_alg,
-                        selected_cipher.ok_or_else(|| HIPError::FieldisNOTSet)?,
-                    );
                     keymat = Utils::kdf(
                         hmac_alg,
                         &salt_buffer,
@@ -1295,56 +1319,53 @@ impl<'a> HIPDaemon<'a> {
                 // Compute HMAC
                 let mut param_buf: Vec<u8, U512> = Vec::new();
                 match (r1_counter_param, echo_request_signed_opaque_data) {
-                    (Some(r1), Some(echo_req)) => {
-                        //
-                        match (dh_param, hi_param) {
-                            (
-                                (HIPParamsTypes::DHParam(dh256), HIPParamsTypes::Default),
-                                (HIPParamsTypes::HostIdParam(hi256), HIPParamsTypes::Default),
-                            ) => {
-                                for byte in esp_info_param
-                                    .inner_ref()
-                                    .as_ref()
-                                    .iter()
-                                    .chain(r1.inner_ref().as_ref().iter())
-                                    .chain(solution_param.inner_ref().as_ref().iter())
-                                    .chain(dh256.inner_ref().as_ref().iter())
-                                    .chain(cipher_param.inner_ref().as_ref().iter())
-                                    .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                    .chain(hi256.inner_ref().as_ref().iter())
-                                    .chain(echo_signed.inner_ref().as_ref().iter())
-                                    .chain(transfmt_param.inner_ref().as_ref().iter())
-                                {
-                                    param_buf
-                                        .push(*byte)
-                                        .map_err(|_| HIPError::Bufferistooshort);
-                                }
+                    (Some(r1), Some(echo_req)) => match (dh_param, hi_param) {
+                        (
+                            (HIPParamsTypes::DHParam(dh256), HIPParamsTypes::Default),
+                            (HIPParamsTypes::HostIdParam(hi256), HIPParamsTypes::Default),
+                        ) => {
+                            for byte in esp_info_param
+                                .inner_ref()
+                                .as_ref()
+                                .iter()
+                                .chain(r1.inner_ref().as_ref().iter())
+                                .chain(solution_param.inner_ref().as_ref().iter())
+                                .chain(dh256.inner_ref().as_ref().iter())
+                                .chain(cipher_param.inner_ref().as_ref().iter())
+                                .chain(esp_transform_param.inner_ref().as_ref().iter())
+                                .chain(hi256.inner_ref().as_ref().iter())
+                                .chain(echo_signed.inner_ref().as_ref().iter())
+                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                            {
+                                param_buf
+                                    .push(*byte)
+                                    .map_err(|_| HIPError::Bufferistooshort);
                             }
-                            (
-                                (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh384)),
-                                (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi384)),
-                            ) => {
-                                for byte in esp_info_param
-                                    .inner_ref()
-                                    .as_ref()
-                                    .iter()
-                                    .chain(r1.inner_ref().as_ref().iter())
-                                    .chain(solution_param.inner_ref().as_ref().iter())
-                                    .chain(dh384.inner_ref().as_ref().iter())
-                                    .chain(cipher_param.inner_ref().as_ref().iter())
-                                    .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                    .chain(hi384.inner_ref().as_ref().iter())
-                                    .chain(echo_signed.inner_ref().as_ref().iter())
-                                    .chain(transfmt_param.inner_ref().as_ref().iter())
-                                {
-                                    param_buf
-                                        .push(*byte)
-                                        .map_err(|_| HIPError::Bufferistooshort);
-                                }
-                            }
-                            (_, _) => unimplemented!(),
                         }
-                    }
+                        (
+                            (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh384)),
+                            (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi384)),
+                        ) => {
+                            for byte in esp_info_param
+                                .inner_ref()
+                                .as_ref()
+                                .iter()
+                                .chain(r1.inner_ref().as_ref().iter())
+                                .chain(solution_param.inner_ref().as_ref().iter())
+                                .chain(dh384.inner_ref().as_ref().iter())
+                                .chain(cipher_param.inner_ref().as_ref().iter())
+                                .chain(esp_transform_param.inner_ref().as_ref().iter())
+                                .chain(hi384.inner_ref().as_ref().iter())
+                                .chain(echo_signed.inner_ref().as_ref().iter())
+                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                            {
+                                param_buf
+                                    .push(*byte)
+                                    .map_err(|_| HIPError::Bufferistooshort);
+                            }
+                        }
+                        (_, _) => unimplemented!(),
+                    },
                     (Some(r1), None) => match (dh_param, hi_param) {
                         (
                             (HIPParamsTypes::DHParam(dh256), HIPParamsTypes::Default),
@@ -1493,8 +1514,13 @@ impl<'a> HIPDaemon<'a> {
                         .map_err(|_| HIPError::Bufferistooshort)?;
                 }
 
-                let (aes_key, hmac_key) =
-                    Utils::get_keys(&keymat, hmac_alg, selected_cipher.unwrap(), &ihit, &rhit)?;
+                let (aes_key, hmac_key) = Utils::get_keys(
+                    &keymat[..keymat_len_octets as usize],
+                    hmac_alg,
+                    selected_cipher.unwrap(),
+                    &ihit,
+                    &rhit,
+                )?;
                 let hmac = HMACFactory::get(hmac_alg);
 
                 if mac256_param.is_some() {
@@ -1586,6 +1612,1628 @@ impl<'a> HIPDaemon<'a> {
                     }
                     (_, _) => unimplemented!(),
                 };
+
+                // Reset I2 packet length. We'll progressively `set header_len` when adding each
+                // parameter.
+                hip_i2_packet
+                    .packet
+                    .set_header_length(HIP_DEFAULT_PACKET_LENGTH as u8);
+
+                #[rustfmt::skip]
+                // Add I2 parameters. List of mandatory parameters in an I2 packet
+                 match (r1_counter_param, echo_request_signed_opaque_data) {
+                       (Some(r1), Some(echo_req)) => {
+                           match (dh_param, hi_param, signature_param) {
+                                (
+                                    (HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::SignatureParam(sign_param_256), HIPParamsTypes::Default),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::R1Counter(R1CounterParam::fromtype(&r1)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::EchoResponseSignedParam(EchoResponseSignedParameter::fromtype(&echo_signed)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac256_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_256)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(
+                                            EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                (
+                                    (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::SignatureParam(sign_param_384)),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::R1Counter(R1CounterParam::fromtype(&r1)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::EchoResponseSignedParam(EchoResponseSignedParameter::fromtype(&echo_signed)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac384_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_384)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(
+                                            EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                _ => unimplemented!(),
+                            }
+                        },
+                        (Some(r1), None) => {
+                            match (dh_param, hi_param, signature_param) {
+                                (
+                                    (HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::SignatureParam(sign_param_256), HIPParamsTypes::Default),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::R1Counter(R1CounterParam::fromtype(&r1)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac256_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_256)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(
+                                            EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                (
+                                    (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::SignatureParam(sign_param_384)),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::R1Counter(R1CounterParam::fromtype(&r1)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac384_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_384)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(
+                                            EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                _ => unimplemented!(),
+                            }
+                        },
+                        (None, Some(echo_req)) => {
+                            match (dh_param, hi_param, signature_param) {
+                                (
+                                    (HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::SignatureParam(sign_param_256), HIPParamsTypes::Default),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::EchoResponseSignedParam(EchoResponseSignedParameter::fromtype(&echo_signed)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac256_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_256)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(
+                                            EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                (
+                                    (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::SignatureParam(sign_param_384)),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::EchoResponseSignedParam(EchoResponseSignedParameter::fromtype(&echo_signed)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac384_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_384)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(
+                                            EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                _ => unimplemented!(),
+                            }
+                        },
+                        (None, None) => {
+                            match (dh_param, hi_param, signature_param) {
+                                (
+                                    (HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
+                                    (HIPParamsTypes::SignatureParam(sign_param_256), HIPParamsTypes::Default),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_256)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac256_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_256)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(
+                                            EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                (
+                                    (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
+                                    (HIPParamsTypes::Default, HIPParamsTypes::SignatureParam(sign_param_384)),
+                                ) => {
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SolutionParam(SolutionParameter::fromtype(&solution_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::CipherParam(CipherParameter::fromtype(&cipher_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::ESPTransformParam(ESPTransformParameter::fromtype(&esp_transform_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::HostIdParam(HostIdParameter::fromtype(&hi_384)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::MACParam(MACParameter::fromtype(&mac384_param.unwrap())?));
+                                    hip_i2_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_384)?));
+                                    if echo_request_unisgned_opaque_data.is_some() {
+                                        hip_i2_packet.add_param(HIPParamsTypes::EchoResponseUnsignedParam(
+                                            EchoResponseUnsignedParameter::fromtype(&echo_unsigned)?));
+                                    }
+                                }
+                                _ => unimplemented!(),
+                            }
+                        }
+                    }
+
+                // Swap src & dst IPv6 addresses
+                core::mem::swap(&mut src, &mut dst);
+
+                // Construct IPv6 packet
+                let ipv6_payload_len = (hip_i2_packet.packet.get_header_length() * 8 + 8) as u16;
+                let ipv6_fixed_header_len = 0x28u8;
+                let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+                let mut ipv6_packet = Ipv6Packet::new_checked(
+                    &mut ipv6_buffer[..ipv6_fixed_header_len as usize + ipv6_payload_len as usize],
+                )
+                .map_err(|_| HIPError::Bufferistooshort)?;
+                ipv6_packet.set_version(IPV6_VERSION as u8);
+                ipv6_packet.set_dst_addr(dst);
+                ipv6_packet.set_src_addr(src);
+                ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+                ipv6_packet.set_hop_limit(1);
+                ipv6_packet.set_payload_len(ipv6_payload_len);
+
+                // Compute and set HIP checksum
+                let checksum = Utils::hip_ipv4_checksum(
+                    &src.0,
+                    &dst.0,
+                    protocol,
+                    ipv6_payload_len,
+                    &hip_i2_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
+                );
+                hip_i2_packet.packet.set_checksum(checksum);
+                ipv6_packet.payload_mut().copy_from_slice(
+                    &hip_i2_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
+                );
+
+                // hex formatted string of dst IPv6 address
+                let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
+                if let HeaplessStringTypes::U32(val) = dst_str {
+                    hip_debug!(
+                        "Sending I2 packet to {:?}, bytes sent {:?}",
+                        val,
+                        &ipv6_packet.total_len()
+                    );
+                }
+
+                if is_hit_smaller {
+                    let sv = self.state_vars_map.get_mut(&rhit, &ihit)?;
+                    sv.map(|s| match s.i2_packet {
+                        None => {
+                            s.i2_packet = Some(I2Pkt {
+                                buffer: ipv6_buffer,
+                                len: ipv6_payload_len,
+                            });
+                        }
+                        Some(val) => todo!(),
+                    });
+                } else {
+                    let sv = self.state_vars_map.get_mut(&ihit, &rhit)?;
+                    sv.map(|s| match s.i2_packet {
+                        None => {
+                            s.i2_packet = Some(I2Pkt {
+                                buffer: ipv6_buffer,
+                                len: ipv6_payload_len,
+                            });
+                        }
+                        Some(val) => todo!(),
+                    });
+                }
+
+                if hip_state
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .is_i1_sent()
+                    || hip_state
+                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .is_closing()
+                    || hip_state
+                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .is_closed()
+                {
+                    hip_state.map(|s| s.i2_sent());
+                }
+            }
+
+            HIP_R1_PACKET => {
+                hip_debug!("Received I2 packet");
+
+                let mut solution_param = None;
+                let mut r1_counter_param = None;
+                let mut esp_transform_param = None;
+                let mut esp_info_param = None;
+                let mut dh_param = None;
+                let mut cipher_param = None;
+                let mut hi_param = None;
+                let mut transport_param = None;
+                let mut echo_signed = None;
+                let mut mac_param = None;
+                let mut signature_param = None;
+                let mut responder_pubkey256 = Some(Ok([0; 64]));
+                let mut responder_pubkey384 = Some(Ok([0; 96]));
+                // let mut echo_request_unisgned_opaque_data = None;
+                let mut iv_length = 0;
+                let mut encrypted_param = None;
+                let mut initiators_spi = None;
+                let mut initiators_keymat_index = None;
+
+                let mut parameters = hip_packet.get_parameters();
+
+                // Construct R1 packet
+                let mut hip_i2_packet = R1Packet::<[u8; 1024]>::new_r1packet().unwrap();
+                hip_i2_packet
+                    .packet
+                    .set_senders_hit(&hip_packet.get_senders_hit());
+                // hip_r1_packet.packet.set_receivers_hit(&ihit);
+                hip_i2_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
+                hip_i2_packet.packet.set_version(HIP_VERSION as u8);
+
+                let rhash = HIT::get_responders_hash_alg(&ihit);
+                let rhash_len = match &rhash {
+                    DigestTypes::SHA256(h) => SHA256Digest::get_length(),
+                    DigestTypes::SHA384(h) => SHA384Digest::get_length(),
+                    _ => return Err(HIPError::__Nonexhaustive),
+                };
+
+                let param_list = parameters.ok_or_else(|| HIPError::FieldisNOTSet)?;
+                param_list.iter().for_each(|param| match param {
+                    HIPParamsTypes::ESPInfoParam(val) => {
+                        hip_debug!("ESP Info parameter");
+                        esp_info_param = Some(val);
+                    }
+                    HIPParamsTypes::R1Counter(val) => {
+                        hip_debug!("R1 Counter parameter");
+                        r1_counter_param = Some(val);
+                    }
+                    HIPParamsTypes::SolutionParam(val) => {
+                        hip_debug!("Solution parameter");
+                        solution_param = Some(val);
+                    }
+                    HIPParamsTypes::DHParam(val) => {
+                        hip_debug!("DH parameter");
+                        dh_param = Some(val);
+                    }
+                    HIPParamsTypes::EncryptedParam(val) => {
+                        hip_debug!("Encrypyted parameter");
+                        encrypted_param = Some(val);
+                    }
+                    HIPParamsTypes::HostIdParam(val) => {
+                        hip_debug!("Host ID");
+                        hi_param = Some(val);
+                        if Some(hi_param.map(|param| param.get_algorithm()))
+                            == Some(Some(Ok(0x7 as u16)))
+                        {
+                            let responder_hi = hi_param.map(|param| param.get_host_id());
+                            let oga = HIT::get_responders_oga_id(&ihit);
+                            hip_debug!("Responder's OGA ID {:?}", oga);
+                            hip_debug!("Responder HI: {:?}", responder_hi);
+                            let hi = match responder_hi {
+                                Some(Ok(val)) => val,
+                                _ => {
+                                    hip_debug!("HostID missing");
+                                    &[]
+                                }
+                            };
+                            match hi[0..2] {
+                                [0, 1] => {
+                                    let responders_hit = HIT::compute_hit::<80>(hi, oga);
+                                    hip_debug!("Responder's HIT: {:?}", responders_hit);
+                                    hip_debug!("Initiator's HIT: {:?}", &ihit);
+                                    hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
+                                    if !Utils::hits_equal(&ihit, &responders_hit) {
+                                        hip_trace!("Invalid HIT");
+                                        panic!(
+                                            "Invalid HIT {:?}, responder_hit: {:?}",
+                                            &ihit, &responders_hit
+                                        );
+                                    }
+                                }
+                                [0, 2] => {
+                                    let responders_hit = HIT::compute_hit::<112>(hi, oga);
+                                    hip_debug!("Responder's HIT: {:?}", responders_hit);
+                                    hip_debug!("Initiator's HIT: {:?}", &ihit);
+                                    hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
+                                    if !Utils::hits_equal(&ihit, &responders_hit) {
+                                        hip_trace!("Invalid HIT");
+                                        panic!(
+                                            "Invalid HIT {:?}, responder_hit: {:?}",
+                                            &ihit, &responders_hit
+                                        );
+                                    }
+                                }
+                                _ => unimplemented!(),
+                            }
+                            // Extract publickey from HostId
+                            match hi[0..2] {
+                                [0, 1] => {
+                                    responder_pubkey256 = Some(
+                                        hi[2..].try_into().map_err(|_| HIPError::IncorrectLength),
+                                    );
+                                    // responder_pubkey256 = Err(HIP);
+                                }
+                                [0, 2] => {
+                                    responder_pubkey384 = Some(
+                                        hi[2..].try_into().map_err(|_| HIPError::IncorrectLength),
+                                    );
+                                }
+                                _ => unimplemented!(),
+                            }
+                            // Save responder pubkey to the pubkey_map
+                            match (responder_pubkey256, responder_pubkey384) {
+                                (Some(val), None) => {
+                                    if let Ok(val) = val {
+                                        self.pubkey_map.save(
+                                            &ihit,
+                                            &rhit,
+                                            ResponderPubKey::Pk256(val),
+                                        );
+                                    }
+                                }
+                                (None, Some(val)) => {
+                                    if let Ok(val) = val {
+                                        self.pubkey_map.save(
+                                            &ihit,
+                                            &rhit,
+                                            ResponderPubKey::Pk384(val),
+                                        );
+                                    }
+                                }
+                                (_, _) => unimplemented!(),
+                            };
+                        }
+                    }
+                    HIPParamsTypes::TransportListParam(val) => {
+                        hip_debug!("Transport parameter");
+                        hip_debug!("Transport formats: {:?}", val.get_transport_formats());
+                        transport_param = Some(val);
+                    }
+                    HIPParamsTypes::SignatureParam(val) => {
+                        hip_debug!("Signature parameter");
+                        signature_param = Some(val);
+                    }
+                    HIPParamsTypes::CipherParam(val) => {
+                        hip_debug!("Cipher parameter");
+                        cipher_param = Some(val);
+                    }
+                    HIPParamsTypes::ESPTransformParam(val) => {
+                        hip_debug!("ESP Transform parameter");
+                        esp_transform_param = Some(val);
+                    }
+                    HIPParamsTypes::MACParam(val) => {
+                        hip_debug!("Cipher Parameter");
+                        mac_param = Some(val);
+                    }
+                    HIPParamsTypes::EchoResponseSignedParam(val) => {
+                        hip_debug!("ESP Transform Parameter");
+                        echo_signed = Some(val);
+                    }
+                    _ => (),
+                });
+
+                // Check if any of the mandatory parameters are missing.
+                if solution_param.is_none() {
+                    hip_trace!("Solution Parameter not sent");
+                } else if dh_param.is_none() {
+                    hip_trace!("DH Parameter not sent");
+                } else if cipher_param.is_none() {
+                    hip_trace!("Cipher Parameter not sent");
+                } else if hi_param.is_none() {
+                    hip_trace!("Host ID Parameter not sent");
+                } else if mac_param.is_none() {
+                    hip_trace!("MAC Parameter not sent");
+                } else if esp_info_param.is_none() {
+                    hip_trace!("ESP Info Parameter not sent");
+                } else if transport_param.is_none() {
+                    hip_trace!("Transport Parameter not sent");
+                } else if signature_param.is_none() {
+                    hip_trace!("Signature Parameter not sent");
+                }
+
+                let oga_id = HIT::get_responders_oga_id(&rhit);
+
+                match oga_id {
+                    0x10 | 0x20 | 0x30 => {}
+                    _ => {
+                        hip_debug!("Unsupported HIT suit");
+                        hip_debug!("OGA {:?}", oga_id);
+                        hip_debug!("supported_hit_suits: {:?}", [0x10, 0x20, 0x30]);
+                    }
+                }
+
+                let is_hit_smaller = Utils::is_hit_smaller(&rhit, &ihit);
+                if hip_state
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .is_i2_sent()
+                {
+                    if is_hit_smaller {
+                        hip_debug!("Dropping I2 packet");
+                    }
+                }
+
+                let jrandom = solution_param
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .get_solution()?;
+                let irandom = solution_param
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .get_random()?;
+
+                let mut i = [0u8; 32];
+                let mut j = [0u8; 32];
+                let mut solver = PuzzleSolver(&mut i, &mut j);
+                if !solver.verify_puzzle(
+                    irandom,
+                    jrandom,
+                    &hip_packet.get_senders_hit(),
+                    &hip_packet.get_receivers_hit(),
+                    solution_param.unwrap().get_k_value()? as usize,
+                    &rhash,
+                ) {
+                    hip_debug!("Puzzle was not verified");
+                }
+
+                hip_debug!("Puzzle was verified");
+
+                // Get DH secret keys from dh_map
+                let mut dh_alg_id = 0;
+                let mut sk_i256 = None;
+                let mut sk_i384 = None;
+
+                if is_hit_smaller {
+                    let temp = self.dh_map.get(&rhit, &ihit)?;
+                    match temp {
+                        Some(val) => match val {
+                            InitiatorDHKeys::EcdhP256(sk256, pk256) => {
+                                dh_alg_id = 0x7;
+                                sk_i256 = Some(sk256)
+                            }
+                            InitiatorDHKeys::EcdhP384(sk384, pk384) => {
+                                dh_alg_id = 0x8;
+                                sk_i384 = Some(sk384)
+                            }
+                            _ => unimplemented!(),
+                        },
+                        None => todo!(),
+                    }
+                } else {
+                    let temp = self.dh_map.get(&ihit, &rhit)?;
+                    match temp {
+                        Some(val) => match val {
+                            InitiatorDHKeys::EcdhP256(sk256, pk256) => {
+                                dh_alg_id = 0x7;
+                                sk_i256 = Some(sk256)
+                            }
+                            InitiatorDHKeys::EcdhP384(sk384, pk384) => {
+                                dh_alg_id = 0x8;
+                                sk_i384 = Some(sk384)
+                            }
+                            _ => unimplemented!(),
+                        },
+                        None => todo!(),
+                    }
+                }
+
+                // Get responder public key and compute shared_secret
+                let pubkey_r = dh_param
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .get_public_value()?;
+                let (ss256, ss384) = match (sk_i256, sk_i384) {
+                    (Some(sk), None) => {
+                        let ss256 = ECDHNISTP256::generate_shared_secret(
+                            &sk,
+                            &PkP256::from_bytes(pubkey_r)?,
+                        )?;
+                        (Some(ss256), None)
+                    }
+                    (None, Some(sk)) => {
+                        let ss384 = ECDHNISTP384::<48>::generate_shared_secret(
+                            &sk,
+                            &PkP384::from_bytes(pubkey_r)?,
+                        )?;
+                        (None, Some(ss384))
+                    }
+                    _ => unimplemented!(),
+                };
+                if ss256.is_some() {
+                    hip_debug!("Secret key {:?}", ss256);
+                } else if ss384.is_some() {
+                    hip_debug!("Secret key {:?}", ss384);
+                }
+
+                // A 64 byte salt for the HBKDF from the concatenated irandom + jrandom values
+                let info = Utils::sort_hits(&ihit, &rhit);
+                let mut salt_buffer = [0; 64];
+                let salt = irandom
+                    .iter()
+                    .chain(jrandom.iter())
+                    .enumerate()
+                    .for_each(|(i, x)| salt_buffer[i] = *x);
+
+                let hmac_alg = HIT::get_responders_oga_id(&ihit);
+
+                // Construct a keyinfo value
+                let key_info = KeyInfo {
+                    info,
+                    salt: salt_buffer,
+                    alg_id: dh_alg_id,
+                };
+
+                // Save to key_info map.
+                if is_hit_smaller {
+                    self.key_info_map.save(&rhit, &ihit, key_info);
+                } else {
+                    self.key_info_map.save(&ihit, &rhit, key_info);
+                }
+
+                // Select a cipher from the list of advertised/offered ciphers
+                let offered_ciphers = cipher_param
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .get_ciphers()?;
+                let supported_ciphers = [0x4, 0x2, 0x1]; // NULL (0x1), AES128CBC (0x2), AES256CBC (0x4)
+                let mut selected_cipher = None;
+
+                for (idx, group_id) in offered_ciphers.iter().enumerate() {
+                    if supported_ciphers.contains(group_id) {
+                        selected_cipher = Some(offered_ciphers[idx]);
+                        break;
+                    }
+                }
+                if selected_cipher.is_none() {
+                    hip_trace!("Unsupported cipher");
+                    return Err(HIPError::Unrecognized);
+                }
+
+                // Save to the cipher map.
+                if is_hit_smaller {
+                    self.cipher_map.save(&rhit, &ihit, selected_cipher);
+                } else {
+                    self.cipher_map.save(&ihit, &rhit, selected_cipher);
+                }
+
+                // HIP ESP Transform Parameter
+                if esp_transform_param
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .get_esp_suits()?
+                    .is_empty()
+                {
+                    hip_debug!("ESP transform suit was not negotiated.");
+                    return Err(HIPError::FieldisNOTSet);
+                }
+
+                let selected_esp_transform = esp_transform_param.unwrap().get_esp_suits()?[0];
+
+                initiators_spi = Some(
+                    esp_info_param
+                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .get_new_spi()?,
+                );
+                initiators_keymat_index = Some(
+                    esp_info_param
+                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .get_keymat_index()?,
+                );
+
+                // Output from kdf function i.e. key-material
+                // Note - you only need the first keymat_len_octet bytes from the output
+                let mut keymat = [0; 800];
+                let keymat_len_octets = Utils::compute_keymat_len(
+                    hmac_alg,
+                    selected_cipher.ok_or_else(|| HIPError::FieldisNOTSet)?,
+                );
+
+                if ss256.is_some() {
+                    keymat = Utils::kdf(
+                        hmac_alg,
+                        &salt_buffer,
+                        &ss256.unwrap().to_bytes(),
+                        &key_info.as_bytearray(),
+                        keymat_len_octets,
+                    );
+                } else if ss384.is_some() {
+                    keymat = Utils::kdf(
+                        hmac_alg,
+                        &salt_buffer,
+                        &ss384.unwrap().to_bytes(),
+                        &key_info.as_bytearray(),
+                        keymat_len_octets,
+                    );
+                } else if ss256.is_none() && ss384.is_none() {
+                    return Err(HIPError::FieldisNOTSet);
+                }
+
+                // Save to keymat map.
+                if is_hit_smaller {
+                    self.keymat_map.save(&rhit, &ihit, keymat);
+                } else {
+                    self.keymat_map.save(&ihit, &rhit, keymat);
+                }
+
+                // Encrypted Parameter processing
+                if encrypted_param.is_some() {
+                    let (aes_key, hmac_key) =
+                        Utils::get_keys(&keymat, hmac_alg, selected_cipher.unwrap(), &ihit, &rhit)?;
+                    let cipher = SymmetricCiphersFactory::get(
+                        selected_cipher.ok_or_else(|| HIPError::FieldisNOTSet)?,
+                    );
+                    let (aes128, aes256) = match cipher {
+                        CipherTypes::AES128(val) => {
+                            iv_length = 0x10;
+                            (Some(val), None)
+                        } // AES-128 and AES-256 have a block-size of 16 bytes
+                        CipherTypes::AES256(val) => {
+                            iv_length = 0x10;
+                            (None, Some(val))
+                        } // iv_length in both cases is 16
+                        _ => unimplemented!(),
+                    };
+                    let iv = encrypted_param
+                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .get_iv(iv_length)?;
+                    let data = encrypted_param
+                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .get_encrypted_data(iv_length)?;
+                    let data_len = data.len();
+                    let host_id_data = match (aes128, aes256) {
+                        (Some(aes128), None) => aes128.decrypt(aes_key, iv, data),
+                        (None, Some(aes256)) => aes256.decrypt(aes_key, iv, data),
+                        _ => unimplemented!(),
+                    };
+
+                    // decrypted host_id_param_data
+                    let hi_param = HostIdParameter::new_checked(&host_id_data[..data_len])?;
+
+                    if hi_param.get_algorithm()? == 0x7 {
+                        let responder_hi = hi_param.get_host_id();
+                        let oga = HIT::get_responders_oga_id(&ihit);
+                        hip_debug!("Responder's OGA ID {:?}", oga);
+                        hip_debug!("Responder HI: {:?}", responder_hi);
+                        let hi = match responder_hi {
+                            Ok(val) => val,
+                            _ => {
+                                hip_debug!("HostID missing");
+                                &[]
+                            }
+                        };
+                        match hi[0..2] {
+                            [0, 1] => {
+                                let responders_hit = HIT::compute_hit::<80>(hi, oga);
+                                hip_debug!("Responder's HIT: {:?}", responders_hit);
+                                hip_debug!("Initiator's HIT: {:?}", &ihit);
+                                hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
+                                if !Utils::hits_equal(&ihit, &responders_hit) {
+                                    hip_trace!("Invalid HIT");
+                                    panic!(
+                                        "Invalid HIT {:?}, responder_hit: {:?}",
+                                        &ihit, &responders_hit
+                                    );
+                                }
+                            }
+                            [0, 2] => {
+                                let responders_hit = HIT::compute_hit::<112>(hi, oga);
+                                hip_debug!("Responder's HIT: {:?}", responders_hit);
+                                hip_debug!("Initiator's HIT: {:?}", &ihit);
+                                hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
+                                if !Utils::hits_equal(&ihit, &responders_hit) {
+                                    hip_trace!("Invalid HIT");
+                                    panic!(
+                                        "Invalid HIT {:?}, responder_hit: {:?}",
+                                        &ihit, &responders_hit
+                                    );
+                                }
+                            }
+                            _ => {
+                                hip_debug!("Invalid remote Host Identity");
+                                unimplemented!()
+                            }
+                        }
+
+                        // Extract publickey from HostId
+                        match hi[0..2] {
+                            [0, 1] => {
+                                responder_pubkey256 =
+                                    Some(hi[2..].try_into().map_err(|_| HIPError::IncorrectLength));
+                                // responder_pubkey256 = Err(HIP);
+                            }
+                            [0, 2] => {
+                                responder_pubkey384 =
+                                    Some(hi[2..].try_into().map_err(|_| HIPError::IncorrectLength));
+                            }
+                            _ => {
+                                hip_debug!("Invalid remote Host Identity");
+                                unimplemented!()
+                            }
+                        }
+                    }
+                }
+
+                // Fill out an I2 packet
+                let mut hip_i2_packet = I2Packet::<[u8; 1024]>::new_i2packet()?;
+                hip_i2_packet.packet.set_senders_hit(&rhit);
+                hip_i2_packet.packet.set_receivers_hit(&ihit);
+                hip_i2_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
+                hip_i2_packet.packet.set_version(HIP_VERSION as u8);
+
+                // Compute HMAC
+                let mut param_buf: Vec<u8, U512> = Vec::new();
+                match (r1_counter_param, echo_signed) {
+                    (Some(r1), Some(echo_signed)) => {
+                        for byte in option_as_ref(esp_info_param)?
+                            .iter()
+                            .chain(r1.inner_ref().as_ref().iter())
+                            .chain(option_as_ref(solution_param)?.iter())
+                            .chain(option_as_ref(dh_param)?.iter())
+                            .chain(option_as_ref(cipher_param)?.iter())
+                            .chain(option_as_ref(esp_transform_param)?.iter())
+                            .chain(option_as_ref(hi_param)?.iter())
+                            .chain(echo_signed.inner_ref().as_ref().iter())
+                            .chain(option_as_ref(transport_param)?.iter())
+                        {
+                            param_buf
+                                .push(*byte)
+                                .map_err(|_| HIPError::Bufferistooshort);
+                        }
+                    }
+                    (Some(r1), None) => {
+                        for byte in option_as_ref(esp_info_param)?
+                            .iter()
+                            .chain(r1.inner_ref().as_ref().iter())
+                            .chain(option_as_ref(solution_param)?.iter())
+                            .chain(option_as_ref(dh_param)?.iter())
+                            .chain(option_as_ref(cipher_param)?.iter())
+                            .chain(option_as_ref(esp_transform_param)?.iter())
+                            .chain(option_as_ref(hi_param)?.iter())
+                            .chain(option_as_ref(transport_param)?.iter())
+                        {
+                            param_buf
+                                .push(*byte)
+                                .map_err(|_| HIPError::Bufferistooshort);
+                        }
+                    }
+                    (None, Some(echo_signed)) => {
+                        for byte in option_as_ref(esp_info_param)?
+                            .iter()
+                            .chain(option_as_ref(solution_param)?.iter())
+                            .chain(option_as_ref(dh_param)?.iter())
+                            .chain(option_as_ref(cipher_param)?.iter())
+                            .chain(option_as_ref(esp_transform_param)?.iter())
+                            .chain(option_as_ref(hi_param)?.iter())
+                            .chain(echo_signed.inner_ref().as_ref().iter())
+                            .chain(option_as_ref(transport_param)?.iter())
+                        {
+                            param_buf
+                                .push(*byte)
+                                .map_err(|_| HIPError::Bufferistooshort);
+                        }
+                    }
+                    (None, None) => {
+                        for byte in option_as_ref(esp_info_param)?
+                            .iter()
+                            .chain(option_as_ref(solution_param)?.iter())
+                            .chain(option_as_ref(dh_param)?.iter())
+                            .chain(option_as_ref(cipher_param)?.iter())
+                            .chain(option_as_ref(esp_transform_param)?.iter())
+                            .chain(option_as_ref(hi_param)?.iter())
+                            .chain(option_as_ref(transport_param)?.iter())
+                        {
+                            param_buf
+                                .push(*byte)
+                                .map_err(|_| HIPError::Bufferistooshort);
+                        }
+                    }
+                }
+
+                let current_r1pkt_len = hip_i2_packet.packet.get_header_length();
+                let pkt_len = current_r1pkt_len as usize * 8 + &param_buf.len();
+                hip_i2_packet.packet.set_header_length((pkt_len / 8) as u8);
+                let mut hmac_bytes: Vec<u8, U512> = Vec::new();
+                for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
+                    .iter()
+                    .chain(param_buf[..].iter())
+                {
+                    hmac_bytes
+                        .push(*byte)
+                        .map_err(|_| HIPError::Bufferistooshort)?;
+                }
+
+                let (aes_key, hmac_key) = Utils::get_keys(
+                    &keymat[..keymat_len_octets as usize],
+                    hmac_alg,
+                    selected_cipher.unwrap(),
+                    &rhit,
+                    &ihit,
+                )?;
+                let hmac = HMACFactory::get(hmac_alg);
+
+                match hmac {
+                    HMACTypes::HMAC256(mac) => {
+                        if SHA256HMAC::hmac_256(&hmac_bytes[..], hmac_key)
+                            != mac_param
+                                .ok_or_else(|| HIPError::FieldisNOTSet)?
+                                .get_hmac()?
+                        {
+                            hip_debug!("Invalid HMAC. Dropping the packet");
+                        }
+                    }
+                    HMACTypes::HMAC384(mac) => {
+                        if SHA384HMAC::hmac_384(&hmac_bytes[..], hmac_key)
+                            != mac_param
+                                .ok_or_else(|| HIPError::FieldisNOTSet)?
+                                .get_hmac()?
+                        {
+                            hip_debug!("Invalid HMAC. Dropping the packet");
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                // Verify signature of I2 Packet
+                let current_r1pkt_len = hip_i2_packet.packet.get_header_length();
+                let pkt_len = current_r1pkt_len as usize * 8 + &param_buf.len();
+                hip_i2_packet.packet.set_header_length((pkt_len / 8) as u8);
+                let mut bytes_to_verify: Vec<u8, U512> = Vec::new();
+                for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
+                    .iter()
+                    .chain(param_buf[..].iter())
+                {
+                    bytes_to_verify
+                        .push(*byte)
+                        .map_err(|_| HIPError::Bufferistooshort)?;
+                }
+
+                match (responder_pubkey256, responder_pubkey384) {
+                    (Some(val), None) => {
+                        if let Ok(pubkey_256) = val {
+                            let verifier = ECDSASHA256Signature([0; 32], pubkey_256);
+                            let verified = verifier.verify(
+                                &bytes_to_verify[..],
+                                signature_param
+                                    .ok_or_else(|| HIPError::SignatureError)?
+                                    .inner_ref()
+                                    .as_ref(),
+                            );
+                            if !verified? {
+                                hip_trace!("Invalid signature in R1 packet. Dropping the packet");
+                            } else {
+                                hip_debug!("Signature is correct");
+                            }
+                        }
+                    }
+                    (None, Some(val)) => {
+                        if let Ok(pubkey_384) = val {
+                            let verifier = ECDSASHA384Signature(
+                                [0; 48],
+                                EncodedPointP384::from_bytes(pubkey_384)
+                                    .map_err(|_| HIPError::InvalidEncoding)?,
+                            );
+                            let verified = verifier.verify(
+                                &bytes_to_verify[..],
+                                signature_param
+                                    .ok_or_else(|| HIPError::SignatureError)?
+                                    .inner_ref()
+                                    .as_ref(),
+                            );
+                            if !verified? {
+                                hip_trace!("Invalid signature in R1 packet. Dropping the packet");
+                            } else {
+                                hip_debug!("Signature is correct");
+                            }
+                        }
+                    }
+                    (_, _) => unimplemented!(),
+                }
+
+                hip_debug!("Processing I2 packet");
+
+                // Construct a new R2 Packet
+                let mut hip_r2_packet = R2Packet::<[u8; 512]>::new_r2packet()?;
+                hip_r2_packet.packet.set_senders_hit(&rhit);
+                hip_r2_packet.packet.set_receivers_hit(&ihit);
+                hip_r2_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
+                hip_r2_packet.packet.set_version(HIP_VERSION as u8);
+
+                let keymat_index = Utils::compute_hip_keymat_len(
+                    hmac_alg,
+                    selected_cipher.ok_or_else(|| HIPError::FieldisNOTSet)?,
+                );
+                let responder_spi = getrandom::<4>([12; 32]);
+
+                if initiators_keymat_index != Some(keymat_index as u16) {
+                    hip_trace!("Keymat index should match....");
+                    return Err(HIPError::IncorrectLength);
+                }
+
+                let mut esp_info_param = ESPInfoParameter::new_checked([0; 16])?;
+                esp_info_param.init_espinfoparameter_param();
+                esp_info_param.set_keymat_index(keymat_index as u16);
+                esp_info_param.set_new_spi(u32::from_be_bytes(responder_spi));
+
+                hip_r2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(
+                    &esp_info_param,
+                )?));
+                let (aes_key, hmac_key) = Utils::get_keys(
+                    &keymat[..keymat_len_octets as usize],
+                    hmac_alg,
+                    selected_cipher.unwrap(),
+                    &ihit,
+                    &rhit,
+                )?;
+                let hmac = HMACFactory::get(hmac_alg);
+
+                // HIP Mac2 Parameter
+                let (mut mac2_256_param, mut mac2_384_param) = match hmac_alg {
+                    0x1 => {
+                        let mut mac2_param = MAC2Parameter::new_checked([0; 32 + 4])?;
+                        mac2_param.init_mac2paramter_param();
+                        (Some(mac2_param), None)
+                    }
+                    0x2 => {
+                        let mut mac2_param = MAC2Parameter::new_checked([0; 48 + 4])?;
+                        mac2_param.init_mac2paramter_param();
+                        (None, Some(mac2_param))
+                    }
+                    _ => unimplemented!(),
+                };
+
+                let byte_len = hip_r2_packet.packet.get_header_length() * 8 + 8;
+                if mac2_256_param.is_some() {
+                    mac2_256_param.unwrap().set_hmac2(&SHA256HMAC::hmac_256(
+                        &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize],
+                        hmac_key,
+                    ));
+                } else if mac2_384_param.is_some() {
+                    mac2_384_param.unwrap().set_hmac2(&SHA384HMAC::hmac_384(
+                        &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize],
+                        hmac_key,
+                    ));
+                }
+
+                // Compute Signature
+                // Get signer_tuple - i.e. Signature2 Parameter AND ECDSA Signature type
+                let signer_tuple = match self.privkey {
+                    Some(val) if val.len() == 0x20 => {
+                        let mut signature_param = Signature2Parameter::new_checked([0; 72])?;
+                        signature_param.init_signature2parameter_param();
+                        let signer = ECDSASHA256Signature([0; 32], [0; 64]);
+                        (Some((signature_param, signer)), None)
+                    }
+                    Some(val) if val.len() == 0x30 => {
+                        let mut signature_param = Signature2Parameter::new_checked([0; 104])?;
+                        signature_param.init_signature2parameter_param();
+                        let signer = ECDSASHA384Signature([0; 48], EncodedPointP384::identity());
+                        (None, Some((signature_param, signer)))
+                    }
+                    Some(_) => unimplemented!(),
+                    None => unreachable!(),
+                };
+
+                // Get data to be signed
+                let data_tobe_signed: Result<Vec<u8, _>> = match (mac2_256_param, mac2_384_param) {
+                    (Some(mac2_256_param), None) => {
+                        let mut s: Vec<u8, U512> = Vec::new();
+                        for byte in hip_r2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
+                            .iter()
+                            .chain(mac2_256_param.inner_ref().as_ref().iter())
+                        {
+                            s.push(*byte).map_err(|_| HIPError::Bufferistooshort)?;
+                        }
+                        let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
+                        let pkt_len = current_r1pkt_len as usize * 8
+                            + mac2_256_param.inner_ref().as_ref().len();
+                        hip_r2_packet.packet.set_header_length((pkt_len / 8) as u8);
+                        Ok(s)
+                    }
+                    (None, Some(mac2_384_param)) => {
+                        let mut s: Vec<u8, U512> = Vec::new();
+                        for byte in hip_r2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
+                            .iter()
+                            .chain(mac2_384_param.inner_ref().as_ref().iter())
+                        {
+                            s.push(*byte).map_err(|_| HIPError::Bufferistooshort)?;
+                        }
+                        let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
+                        let pkt_len = current_r1pkt_len as usize * 8
+                            + mac2_384_param.inner_ref().as_ref().len();
+                        hip_r2_packet.packet.set_header_length((pkt_len / 8) as u8);
+                        Ok(s)
+                    }
+                    (_, _) => unimplemented!(),
+                };
+
+                let signature_param = match signer_tuple {
+                    (Some((mut signature_param, signer)), None) => {
+                        let signature = signer.sign(&data_tobe_signed?[..]);
+                        signature_param.set_signature_algorithm_2(0x7);
+                        signature_param.set_signature_2(&signature?[..]);
+                        (
+                            HIPParamsTypes::Signature2Param(signature_param),
+                            HIPParamsTypes::Default,
+                        )
+                    }
+                    (None, Some((mut signature_param, signer))) => {
+                        let signature = signer.sign(&data_tobe_signed?[..]);
+                        signature_param.set_signature_algorithm_2(0x7);
+                        signature_param.set_signature_2(&signature?[..]);
+                        (
+                            HIPParamsTypes::Default,
+                            HIPParamsTypes::Signature2Param(signature_param),
+                        )
+                    }
+                    (_, _) => unimplemented!(),
+                };
+
+                #[rustfmt::skip]
+                match (signature_param, mac2_256_param) {
+                    ((HIPParamsTypes::Signature2Param(s256), HIPParamsTypes::Default),// 
+                        Some(mac2_256_param))  => {
+                        hip_r2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                        hip_r2_packet.add_param(HIPParamsTypes::MAC2Param(MAC2Parameter::fromtype(&mac2_256_param)?));
+                        hip_r2_packet.add_param(HIPParamsTypes::Signature2Param(Signature2Parameter::fromtype(&s256)?));
+                    },
+                    ((HIPParamsTypes::Signature2Param(s384), HIPParamsTypes::Default),// 
+                        Some(mac2_384_param))  => {
+                        hip_r2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
+                        hip_r2_packet.add_param(HIPParamsTypes::MAC2Param(MAC2Parameter::fromtype(&mac2_384_param)?));
+                        hip_r2_packet.add_param(HIPParamsTypes::Signature2Param(Signature2Parameter::fromtype(&s384)?));
+                    }
+                    _ => unimplemented!(),
+                }
+
+                // Swap src & dst IPv6 addresses
+                core::mem::swap(&mut src, &mut dst);
+
+                // Construct IPv6 packet
+                let ipv6_payload_len = (hip_r2_packet.packet.get_header_length() * 8 + 8) as u16;
+                let ipv6_fixed_header_len = 0x28u8;
+                let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+                let mut ipv6_packet = Ipv6Packet::new_checked(
+                    &mut ipv6_buffer[..ipv6_fixed_header_len as usize + ipv6_payload_len as usize],
+                )
+                .map_err(|_| HIPError::Bufferistooshort)?;
+                ipv6_packet.set_version(IPV6_VERSION as u8);
+                ipv6_packet.set_dst_addr(dst);
+                ipv6_packet.set_src_addr(src);
+                ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+                ipv6_packet.set_hop_limit(1);
+                ipv6_packet.set_payload_len(ipv6_payload_len);
+
+                // Compute and set HIP checksum
+                let checksum = Utils::hip_ipv4_checksum(
+                    &src.0,
+                    &dst.0,
+                    protocol,
+                    ipv6_payload_len,
+                    &hip_r2_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
+                );
+                hip_r2_packet.packet.set_checksum(checksum);
+                ipv6_packet.payload_mut().copy_from_slice(
+                    &hip_r2_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
+                );
+
+                // hex formatted string of dst IPv6 address
+                let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
+                let src_str = Utils::hex_formatted_hit_bytes(Some(&src.0), None)?;
+
+                hip_debug!("Current System state is {:?}", hip_state);
+                if hip_state
+                    .ok_or_else(|| HIPError::__Nonexhaustive)?
+                    .is_established()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_unassociated()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_i1_sent()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_i2_sent()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_r2_sent()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_closing()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_closed()
+                {
+                    hip_state.map(|s| s.r2_sent());
+                    if let HeaplessStringTypes::U32(val) = dst_str {
+                        hip_debug!(
+                            "Sending I2 packet to {:?}, bytes sent {:?}",
+                            val,
+                            &ipv6_packet.total_len()
+                        );
+                    }
+                }
+
+                hip_debug!("Setting SA records...");
+
+                let (cipher, hmac) = ESPTransformFactory::get(selected_esp_transform);
+
+                // Create a new SA record and save it to out sa_map
+                match cipher {
+                    CipherTypes::AES128(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index,
+                            0x1, // hmac256 id
+                            0x2, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record = SecurityAssociationRecord::new(
+                            0x2, 0x1, aes_key, hmac_key, src.0, dst.0,
+                        );
+                        sa_record.set_spi(initiators_spi.ok_or_else(|| HIPError::__Nonexhaustive)?);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&rhit), Some(&ihit))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    CipherTypes::AES256(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index,
+                            0x1, // hmac256 id
+                            0x4, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record = SecurityAssociationRecord::new(
+                            0x2, 0x1, aes_key, hmac_key, src.0, dst.0,
+                        );
+                        sa_record.set_spi(initiators_spi.ok_or_else(|| HIPError::__Nonexhaustive)?);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&rhit), Some(&ihit))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                // Save this extra record to the sa_map for debugging purposes
+                match cipher {
+                    CipherTypes::AES128(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index,
+                            0x1, // hmac256 id
+                            0x2, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record =
+                            SecurityAssociationRecord::new(0x2, 0x1, aes_key, hmac_key, rhit, ihit);
+                        sa_record.set_spi(initiators_spi.ok_or_else(|| HIPError::__Nonexhaustive)?);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&dst.0), Some(&src.0))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    CipherTypes::AES256(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index,
+                            0x1, // hmac256 id
+                            0x4, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record =
+                            SecurityAssociationRecord::new(0x2, 0x1, aes_key, hmac_key, rhit, ihit);
+                        sa_record.set_spi(initiators_spi.ok_or_else(|| HIPError::__Nonexhaustive)?);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&dst.0), Some(&src.0))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                if is_hit_smaller {
+                    let sv = self.state_vars_map.get_mut(&rhit, &ihit)?;
+                    sv.map(|s| {
+                        s.ec_complete_timeout = Instant::now()
+                            + Duration {
+                                millis: (120 * 1000) as u64,
+                            }
+                    });
+                } else {
+                    let sv = self.state_vars_map.get_mut(&ihit, &rhit)?;
+                    sv.map(|s| {
+                        s.ec_complete_timeout = Instant::now()
+                            + Duration {
+                                millis: (120 * 1000) as u64,
+                            }
+                    });
+                }
+            }
+
+            HIP_R2_PACKET => {
+                if hip_state
+                    .ok_or_else(|| HIPError::__Nonexhaustive)?
+                    .is_unassociated()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_i1_sent()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_r2_sent()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_established()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_closing()
+                    || hip_state
+                        .ok_or_else(|| HIPError::__Nonexhaustive)?
+                        .is_closed()
+                {
+                    hip_debug!("Dropping the packet ");
+                }
+
+                hip_debug!("Got R2 Packet");
+
+                let mut cipher_alg = 0;
+                let mut keymat = [0u8; 800];
+                let hmac_alg = HIT::get_responders_oga_id(&ihit);
+                let is_hit_smaller = Utils::is_hit_smaller(&rhit, &ihit);
+
+                if is_hit_smaller {
+                    match self.cipher_map.get(&rhit, &ihit)? {
+                        Some(val) => match val {
+                            Some(val) => cipher_alg = *val,
+                            None => {}
+                        },
+                        None => {}
+                    }
+                } else {
+                    match self.cipher_map.get(&ihit, &rhit)? {
+                        Some(val) => match val {
+                            Some(val) => cipher_alg = *val,
+                            None => {}
+                        },
+                        None => {}
+                    }
+                }
+
+                if is_hit_smaller {
+                    match self.keymat_map.get(&rhit, &ihit)? {
+                        Some(val) => keymat = *val,
+                        None => {}
+                    }
+                } else {
+                    match self.keymat_map.get(&rhit, &ihit)? {
+                        Some(val) => keymat = *val,
+                        None => {}
+                    }
+                }
+
+                let keymat_len_octets = Utils::compute_keymat_len(hmac_alg, cipher_alg);
+                let (aes_key, hmac_key) = Utils::get_keys(
+                    &keymat[..keymat_len_octets as usize],
+                    hmac_alg,
+                    cipher_alg,
+                    &ihit,
+                    &rhit,
+                )?;
+
+                let hmac = HMACFactory::get(hmac_alg);
+                let param_list = hip_packet
+                    .get_parameters()
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?;
+                let mut esp_info_param = None;
+                let mut hmac_param = None;
+                let mut signature_param = None;
+
+                // let initiators_spi = None;
+                let mut responders_spi = None;
+                let mut keymat_index = None;
+
+                param_list.iter().for_each(|param| match param {
+                    HIPParamsTypes::ESPInfoParam(val) => {
+                        hip_debug!("ESP Info parameter");
+                        esp_info_param = Some(val);
+                    }
+                    HIPParamsTypes::MAC2Param(val) => {
+                        hip_debug!("Mac2 parameter");
+                        hmac_param = Some(val);
+                    }
+                    HIPParamsTypes::Signature2Param(val) => {
+                        hip_debug!("Signature2 parameter");
+                        signature_param = Some(val);
+                    }
+                    _ => {}
+                });
+
+                // Check if any of the mandatory parameters are missing.
+                if esp_info_param.is_none() {
+                    hip_trace!("ESP Info Parameter not sent");
+                } else if hmac_param.is_none() {
+                    hip_trace!("MAC2 Parameter not sent");
+                } else if signature_param.is_none() {
+                    hip_trace!("Signature2 Parameter not sent");
+                }
+
+                // Construct a new R2 Packet
+                let mut hip_r2_packet = R2Packet::<[u8; 512]>::new_r2packet()?;
+                hip_r2_packet.packet.set_senders_hit(&rhit);
+                hip_r2_packet.packet.set_receivers_hit(&ihit);
+                hip_r2_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
+                hip_r2_packet.packet.set_version(HIP_VERSION as u8);
+
+                if let Some(val) = esp_info_param {
+                    hip_r2_packet.add_param(HIPParamsTypes::ESPInfoParam(
+                        ESPInfoParameter::fromtype(val)?,
+                    ));
+                }
+
+                let byte_len = hip_r2_packet.packet.get_header_length() * 8 + 8;
+                match hmac_alg {
+                    0x1 => {
+                        if &SHA256HMAC::hmac_256(
+                            &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize],
+                            hmac_key,
+                        ) != hmac_param
+                            .ok_or_else(|| HIPError::FieldisNOTSet)?
+                            .get_hmac2()?
+                        {
+                            hip_debug!("Invalid HMAC256. Dropping the packet");
+                        }
+                    }
+                    0x2 => {
+                        if &SHA384HMAC::hmac_384(
+                            &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize],
+                            hmac_key,
+                        ) != hmac_param
+                            .ok_or_else(|| HIPError::FieldisNOTSet)?
+                            .get_hmac2()?
+                        {
+                            hip_debug!("Invalid HMAC384. Dropping the packet");
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                hip_debug!("HMAC is ok. Compute signature");
+
+                let hmac_param_len = hmac_param
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .inner_ref()
+                    .as_ref()
+                    .len();
+                let hmac_param_bytes = hmac_param
+                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .inner_ref()
+                    .as_ref();
+                let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
+                let pkt_len = current_r2pkt_len as usize * 8 + hmac_param_len;
+                hip_r2_packet.packet.set_header_length((pkt_len / 8) as u8);
+                let mut bytes_to_verify: Vec<u8, U512> = Vec::new();
+                for byte in hip_r2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
+                    .iter()
+                    .chain(hmac_param_bytes.iter())
+                {
+                    bytes_to_verify
+                        .push(*byte)
+                        .map_err(|_| HIPError::Bufferistooshort)?;
+                }
+
+                let mut responder_pubkey256 = [0; 64];
+                let mut responder_pubkey384 = [0; 96];
+
+                let responder_pubkey = self.pubkey_map.get(&ihit, &rhit)?;
+                // Get responder pubkey from our pubkey_map
+                let pubkey_len = match responder_pubkey {
+                    Some(val) => match val {
+                        ResponderPubKey::Pk256(val) => {
+                            responder_pubkey256 = *val;
+                            0x20
+                        }
+                        ResponderPubKey::Pk384(val) => {
+                            responder_pubkey384 = *val;
+                            0x30
+                        }
+                    },
+                    None => 0x0,
+                };
+
+                match pubkey_len {
+                    0x20 => {
+                        let verifier = ECDSASHA256Signature([0; 32], responder_pubkey256);
+                        let verified =
+                            verifier.verify(&bytes_to_verify[..], option_as_ref(signature_param)?);
+                        if !verified? {
+                            hip_trace!("Invalid signature in R2 packet. Dropping the packet");
+                        } else {
+                            hip_debug!("Signature is correct");
+                        }
+                    }
+                    0x30 => {
+                        let verifier = ECDSASHA384Signature(
+                            [0; 48],
+                            EncodedPointP384::from_bytes(responder_pubkey384)
+                                .map_err(|_| HIPError::InvalidEncoding)?,
+                        );
+                        let verified =
+                            verifier.verify(&bytes_to_verify[..], option_as_ref(signature_param)?);
+                        if !verified? {
+                            hip_trace!("Invalid signature in R2 packet. Dropping the packet");
+                        } else {
+                            hip_debug!("Signature is correct");
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                responders_spi = esp_info_param.map(|esp_info| esp_info.get_new_spi());
+                keymat_index = esp_info_param.map(|esp_info| esp_info.get_keymat_index());
+
+                hip_debug!("Processing R2 packet");
+                hip_debug!("Ending HIP BEX");
+
+                // hex formatted string of dst IPv6 address
+                let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
+                let src_str = Utils::hex_formatted_hit_bytes(Some(&src.0), None)?;
+
+                hip_debug!("Setting SA records...{:?} - {:?}", src_str, dst_str);
+
+                let (cipher, hmac) = ESPTransformFactory::get(
+                    self.selected_esp_transform
+                        .ok_or_else(|| HIPError::Illegal)?,
+                );
+
+                // Create a new SA record and save it to out sa_map
+                match cipher {
+                    CipherTypes::AES128(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index.ok_or_else(|| HIPError::IncorrectLength)?? as u8,
+                            0x1, // hmac256 id
+                            0x2, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record = SecurityAssociationRecord::new(
+                            0x2, 0x1, aes_key, hmac_key, src.0, dst.0,
+                        );
+                        sa_record
+                            .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&rhit), Some(&ihit))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    CipherTypes::AES256(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index.ok_or_else(|| HIPError::IncorrectLength)?? as u8,
+                            0x1, // hmac256 id
+                            0x4, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record = SecurityAssociationRecord::new(
+                            0x2, 0x1, aes_key, hmac_key, src.0, dst.0,
+                        );
+                        sa_record
+                            .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&rhit), Some(&ihit))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                // Save this extra record to the sa_map for debugging purposes
+                match cipher {
+                    CipherTypes::AES128(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index.ok_or_else(|| HIPError::IncorrectLength)?? as u8,
+                            0x1, // hmac256 id
+                            0x2, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record =
+                            SecurityAssociationRecord::new(0x2, 0x1, aes_key, hmac_key, rhit, ihit);
+                        sa_record
+                            .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&dst.0), Some(&src.0))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    CipherTypes::AES256(cipher) => {
+                        let (aes_key, hmac_key) = Utils::get_keys_esp(
+                            &keymat[..keymat_len_octets as usize],
+                            keymat_index.ok_or_else(|| HIPError::IncorrectLength)?? as u8,
+                            0x1, // hmac256 id
+                            0x4, // aes128 id
+                            &ihit,
+                            &rhit,
+                        )?;
+                        let mut sa_record =
+                            SecurityAssociationRecord::new(0x2, 0x1, aes_key, hmac_key, rhit, ihit);
+                        sa_record
+                            .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
+                        let key = Utils::hex_formatted_hit_bytes(Some(&dst.0), Some(&src.0))?;
+                        if let HeaplessStringTypes::U64(key) = key {
+                            self.sa_map.add_record(key, sa_record);
+                        }
+                    }
+                    _ => unimplemented!(),
+                }
+
+                // Transition to an Established state
+                hip_state.map(|state| state.established());
+
+                if is_hit_smaller {
+                    let sv = self.state_vars_map.get_mut(&rhit, &ihit)?;
+                    sv.map(|s| {
+                        s.data_timeout = Instant::now()
+                            + Duration {
+                                millis: (120 * 1000) as u64,
+                            }
+                    });
+                } else {
+                    let sv = self.state_vars_map.get_mut(&ihit, &rhit)?;
+                    sv.map(|s| {
+                        s.data_timeout = Instant::now()
+                            + Duration {
+                                millis: (120 * 1000) as u64,
+                            }
+                    });
+                }
             }
             _ => todo!(),
         }
