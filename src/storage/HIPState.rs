@@ -68,6 +68,10 @@ impl State {
         self == &State::I1Sent
     }
 
+    pub fn i1_sent(mut self) {
+        self = State::I1Sent;
+    }
+
     pub fn is_i2_sent(&self) -> bool {
         self == &State::I2Sent
     }
@@ -531,13 +535,13 @@ pub struct StateVariables {
 	dst:  [u8; 16],
 	// timer: Instant,
 	update_timeout: Instant,
-	i1_timeout: Instant,
-	i1_retries: u8,
+	pub i1_timeout: Instant,
+	pub i1_retries: u8,
 	i2_timeout: Instant,
 	i2_retries: u8,
 	pub i2_packet: Option<I2Pkt>,
 	update_seq: u8,
-	is_responder: bool,
+	pub is_responder: bool,
 	pub data_timeout: Instant,
 	pub ec_complete_timeout: Instant,
 	closing_timeout: Instant,

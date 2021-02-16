@@ -89,9 +89,7 @@ We can describe this process as follows:
 | I  --> &nbsp; DNS: &nbsp; lookup R  		            |
 | I  <-- &nbsp; DNS: &nbsp; return R's address and HI/HIT|
 
-
-
-|  I/R	 | Exchange	| 										   |
+|  Base	 | Exchange	| 										   |
 |--------|----------|------------------------------------------|
 | I1     | I --> R  | Hi, Here is my I1, let's talk with HIP   |
 | R1     | R --> I  | OK, Here is my R1, solve this HIP puzzle |
@@ -101,8 +99,7 @@ We can describe this process as follows:
 | 			 Encrypted data	                |
 |-------------------------------------------|
 | I --> &nbsp;	R (ESP protected data)      |
-| R --> &nbsp;	I (ESP protected data)			|
-<br />
+| R --> &nbsp;	I (ESP protected data)		|
 
 ### Conclusion: Identity based networking
 

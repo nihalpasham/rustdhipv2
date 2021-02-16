@@ -238,6 +238,7 @@ impl<'a> HIPDaemon<'a> {
                 // HIP DH Groups Parameter. An R1 packet will have a 8-byte DH Groups parameter
                 // (i.e. 4 byte TLV + 1 byte selected dh group + 3 bytes of padding)
                 let mut dhgroups_param = DHGroupListParameter::new_checked([0; 8])?;
+                dhgroups_param.init_dhgrouplist_param();
                 let params = hip_packet
                     .get_parameters()
                     .ok_or_else(|| HIPError::FieldisNOTSet)?;
@@ -3240,5 +3241,140 @@ impl<'a> HIPDaemon<'a> {
         Ok(())
     }
 
-    pub fn dispatch_hip_packet() {}
+    /// A method to initiate an HIP connection. Typically, the use of this method indicates
+    /// that this `HIPDaemon instance` is the initiator.
+    ///
+    /// This method constructs and sends an I1 Packet.
+    /// For now, this does not include DNS resolution.
+    pub fn initiate_hip_connection(&mut self, rhit: [u8; 16], dst_ip: [u8; 16]) -> Result<()> {
+        let ihit = self.hit_as_bytes;
+        let mut hip_state = None;
+        let is_hit_smaller = Utils::is_hit_smaller(&ihit, &rhit);
+
+        // Get the key from the `hip_state_machine` and if it doesn't exist, add one.
+        if is_hit_smaller {
+            self.hip_state_machine
+                .get(&rhit, &ihit)?
+                .and_then(|state| Some(hip_state = Some(*state)));
+        } else {
+            self.hip_state_machine
+                .get(&ihit, &rhit)?
+                .and_then(|state| Some(hip_state = Some(*state)));
+        }
+
+        if hip_state
+            .ok_or_else(|| HIPError::FieldisNOTSet)?
+            .is_unassociated()
+            || hip_state
+                .ok_or_else(|| HIPError::FieldisNOTSet)?
+                .is_closing()
+            || hip_state
+                .ok_or_else(|| HIPError::FieldisNOTSet)?
+                .is_closed()
+        {
+            hip_debug!("In Unassociated State {:?}", hip_state);
+            hip_debug!("Starting HIP BEX");
+            // hip_debug!("");
+
+            // HIP DH Groups Parameter. An 11 packet with a 12-byte DH Groups parameter
+            // i.e. we're only interested in 3 groups ECDHNIST384 (0x8), ECDHNIST256 (0x7), ECDHSECP160R1 (0xa)
+            let mut dhgroups_param = DHGroupListParameter::new_checked([0; 12])?;
+            dhgroups_param.init_dhgrouplist_param();
+            dhgroups_param.set_groups(&[0x00, 0x8, 0x00, 0x7, 0x00, 0xa]);
+
+            // Construct a new I1 Packet
+            let mut hip_i1_packet = I1Packet::<[u8; 80]>::new_i1packet()?;
+            hip_i1_packet.packet.set_senders_hit(&rhit);
+            hip_i1_packet.packet.set_receivers_hit(&ihit);
+            hip_i1_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
+            hip_i1_packet.packet.set_version(HIP_VERSION as u8);
+            hip_i1_packet.add_param(HIPParamsTypes::DHGroupListParam(
+                DHGroupListParameter::fromtype(&dhgroups_param)?,
+            ));
+
+            let hip_pkt_size = (hip_i1_packet.packet.get_header_length() * 8 + 8) as u16;
+            let computed_checksum = Utils::hip_ipv4_checksum(
+                &[0; 16],
+                &dst_ip,
+                HIP_PROTOCOL as u8,
+                hip_pkt_size,
+                &hip_i1_packet.inner_ref().as_ref()[..hip_pkt_size as usize],
+            );
+            hip_i1_packet.packet.set_checksum(computed_checksum);
+
+            // Construct an IPv6 packet
+            let ipv6_fixed_header_len = 0x28u8;
+            let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+            let mut ipv6_packet = Ipv6Packet::new_checked(
+                &mut ipv6_buffer[..ipv6_fixed_header_len as usize + hip_pkt_size as usize],
+            )
+            .map_err(|_| HIPError::Bufferistooshort)?;
+            ipv6_packet.set_version(IPV6_VERSION as u8);
+            ipv6_packet.set_dst_addr(Ipv6Address::from_bytes(&dst_ip));
+            ipv6_packet.set_src_addr(Ipv6Address::from_bytes(&[0; 16]));
+            ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+            ipv6_packet.set_hop_limit(1);
+            ipv6_packet.set_payload_len(hip_pkt_size);
+            ipv6_packet
+                .payload_mut()
+                .copy_from_slice(&hip_i1_packet.inner_ref().as_ref()[..hip_pkt_size as usize]);
+
+            hip_debug!("Sending I1 packet");
+
+            // Transition to an I1-Sent state
+            hip_state.map(|state| state.i1_sent());
+
+            if is_hit_smaller {
+                self.state_vars_map.save(
+                    &rhit,
+                    &ihit,
+                    StateVariables::new(
+                        hip_state
+                            .map(|state| state.get_state())
+                            .ok_or_else(|| HIPError::Illegal)?,
+                        &ihit,
+                        &rhit,
+                        &[0; 16],
+                        &dst_ip,
+                        None,
+                    ),
+                );
+                let sv = self.state_vars_map.get_mut(&rhit, &ihit)?;
+                sv.map(|s| {
+                    s.is_responder = false;
+                    s.i1_retries += 1;
+                    s.i1_timeout = Instant::now()
+                        + Duration {
+                            millis: (20 * 1000) as u64,
+                        }
+                });
+            } else {
+                self.state_vars_map.save(
+                    &ihit,
+                    &rhit,
+                    StateVariables::new(
+                        hip_state
+                            .map(|state| state.get_state())
+                            .ok_or_else(|| HIPError::Illegal)?,
+                        &ihit,
+                        &rhit,
+                        &[0; 16],
+                        &dst_ip,
+                        None,
+                    ),
+                );
+                let sv = self.state_vars_map.get_mut(&ihit, &rhit)?;
+                sv.map(|s| {
+                    s.is_responder = false;
+                    s.i1_retries += 1;
+                    s.i1_timeout = Instant::now()
+                        + Duration {
+                            millis: (20 * 1000) as u64,
+                        }
+                });
+            }
+        }
+
+        Ok(())
+    }
 }

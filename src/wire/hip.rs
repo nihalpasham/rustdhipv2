@@ -401,6 +401,11 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> I1Packet<T> {
         let new_len = fixed_header_len as usize + param_len;
         self.packet.set_header_length((new_len as u8) / 8);
     }
+
+    /// Returns a ref to the underlying buffer.
+    pub fn inner_ref(&self) -> &T {
+        &self.packet.buffer
+    }
 }
 
 ///    The HIP header values for the R1 packet:
