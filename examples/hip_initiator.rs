@@ -32,13 +32,13 @@ fn main() {
     let fd = device.as_raw_fd();
 
     let initiator_addr = IpAddress::from_str("fdaa:0:0:0:0:0:0:1").expect("invalid address format");
-    let responder_addr = IpAddress::from_str("fdaa:0:0:0:0:0:0:2").expect("invalid address format");
+    let responder_addr = IpAddress::from_str("fdbb:0:0:0:0:0:0:2").expect("invalid address format");
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
     let ip_addrs = [IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 1), 64)];
 
-    let default_v6_gw = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
+    let default_v6_gw = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0,0x100);
     let mut routes_storage = [None; 2];
     let mut routes = Routes::new(&mut routes_storage[..]);
     routes.add_default_ipv6_route(default_v6_gw).unwrap();

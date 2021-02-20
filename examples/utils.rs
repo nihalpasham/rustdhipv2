@@ -7,7 +7,7 @@ use std::env;
 use log::{Level, LevelFilter};
 #[cfg(feature = "log")]
 use env_logger::Builder;
-
+    
 use rustdhipv2::time::Instant;
 
 #[cfg(feature = "log")]

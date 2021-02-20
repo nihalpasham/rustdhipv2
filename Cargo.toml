@@ -24,7 +24,7 @@ log = { version = "0.4.4", default-features = false, optional = true}
 
 generic-array = { version = "0.14"}
 heapless = {version = "0.5.5"}
-smoltcp = "0.7.0"
+smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp.git", branch = "master"}
 
 # crypto dependencies
 elliptic-curve = "0.8.4"

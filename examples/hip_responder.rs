@@ -33,7 +33,7 @@ fn main() {
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let ip_addrs = [IpCidr::new(IpAddress::v6(0xfdaa, 0, 0, 0, 0, 0, 0, 2), 64)];
+    let ip_addrs = [IpCidr::new(IpAddress::v6(0xfdbb, 0, 0, 0, 0, 0, 0, 2), 64)];
 
     let default_v6_gw = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
     let mut routes_storage = [None; 2];
