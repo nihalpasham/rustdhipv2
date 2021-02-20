@@ -340,6 +340,7 @@ mod test {
 
         let bob_sk = ECDHNISTP256::generate_private_key([14; 32]);
         let bob_pk = ECDHNISTP256::generate_public_key(&bob_sk);
+        println!("{:?}", bob_pk.to_bytes());
 
         let alice_ss = ECDHNISTP256::generate_shared_secret(&alice_sk, &bob_pk);
         let bob_ss = ECDHNISTP256::generate_shared_secret(&bob_sk, &alice_pk);

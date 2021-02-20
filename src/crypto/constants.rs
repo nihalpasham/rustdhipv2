@@ -166,3 +166,11 @@ pub const ECDH_NIST_384_PVT_KEY_SIZE: usize = 384 / 8;
 pub const ECDH_NIST_384_MODP: &str = "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000ffffffff";
 pub const ECDH_NIST_384_GROUP_ORDER: &str = "0xffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973";
 pub const ECDH_NIST_384_B_VAL:  &str = "0xb3312fa7e23ee7e4988e056be3f82d19181d9c6efe8141120314088f5013875ac656398d8a2ed19d2a85c8edd3ec2aef";
+
+pub const ECDH_NIST_256_PVT_KEY_SIZE: usize = 256 / 8;
+pub const ECDH_NIST_256_PUB_KEY_SIZE: usize = (256 / 8) * 2;
+pub const NIST_256_PUBKEY_X_LEN: usize = 0x20;
+pub const NIST_256_PUBKEY_Y_LEN: usize = 0x20;
+pub const ECDH_NIST_256_MODP: &str = "0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff";
+pub const ECDH_NIST_256_GROUP_ORDER: &str = "0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551";
+pub const ECDH_NIST_256_B_VAL: &str = "0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b";

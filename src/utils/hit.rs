@@ -64,8 +64,8 @@ impl HIT {
     /// - ORCHID     :=  Prefix | OGA ID | Encode_96( Hash )
     ///
     /// The N represents the `Hash Input` length. For Ex: we'd use an `N value`
-    /// of `96 + 16`
-    /// - 96 bytes for a P384 public-key and
+    /// of `16 + 96 + 2`
+    /// - 96 + 2 for a `NISTP384 HostId` (i.e. pubkey) and
     /// - 16 bytes for the fixed `Context ID`
     pub fn compute_hit<const N: usize>(hi: &[u8], oga_id: u8) -> [u8; 16] {
         let mut rhash;
@@ -154,14 +154,41 @@ mod test {
         assert_eq!(12, hit_96.len());
     }
 
+    // #[test]
+    // fn test_compute_hit() {
+    //     let data = [12; 48];
+    //     let sha256 = SHA256Digest;
+    //     let hash256 = sha256.digest(&data);
+    //     let hit = HIT::compute_hit::<48>(&hash256, 0x1);
+    //     assert_eq!(
+    //         [32, 1, 32, 1, 18, 183, 211, 169, 42, 196, 19, 229, 119, 38, 62, 91],
+    //         hit
+    //     );
+    //     assert_eq!(16, hit.len());
+    // }
+
     #[test]
-    fn test_compute_hit() {
-        let data = [12; 48];
-        let sha256 = SHA256Digest;
-        let hash256 = sha256.digest(&data);
-        let hit = HIT::compute_hit::<48>(&hash256, 0x1);
+    fn test_256_compute_hit() {
+        let hi_256 = [12; 66];
+        let hit = HIT::compute_hit::<82>(&hi_256, 0x1);
         assert_eq!(
-            [32, 1, 32, 1, 18, 183, 211, 169, 42, 196, 19, 229, 119, 38, 62, 91],
+            [32, 1, 32, 1, 105, 69, 13, 230, 60, 195, 15, 52, 159, 52, 193, 4],
+            hit
+        );
+        assert_eq!(16, hit.len());
+    }
+
+    #[test]
+    fn test_256_compute_hit_with_real_pubkey() {
+        let hi_256 = [
+            0, 1, 173, 21, 17, 6, 85, 21, 15, 46, 150, 107, 221, 134, 41, 55, 187, 70, 95, 149,
+            149, 205, 214, 93, 27, 156, 53, 135, 72, 63, 54, 221, 232, 212, 49, 172, 48, 23, 0,
+            123, 167, 36, 12, 249, 157, 19, 209, 86, 26, 73, 135, 18, 47, 208, 96, 44, 184, 179,
+            226, 198, 179, 195, 115, 243, 255, 157,
+        ];
+        let hit = HIT::compute_hit::<82>(&hi_256, 0x1);
+        assert_eq!(
+            [32, 1, 32, 1, 132, 58, 150, 38, 12, 183, 21, 139, 116, 22, 246, 82],
             hit
         );
         assert_eq!(16, hit.len());

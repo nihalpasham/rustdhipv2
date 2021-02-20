@@ -24,6 +24,17 @@ pub enum HeaplessStringTypes {
     U32(String<U40>),
 }
 
+impl HeaplessStringTypes {
+    pub fn as_str(&self) -> &str {
+        match self {
+            HeaplessStringTypes::U64(str) => {str.as_str()},
+            HeaplessStringTypes::U32(str) => {str.as_str()}
+        }
+    }
+}
+    
+
+
 pub struct Utils;
 
 impl Utils {

@@ -1,1 +1,1 @@
-mod hipd;
+pub mod hipd;

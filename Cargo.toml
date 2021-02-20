@@ -11,6 +11,9 @@ name = "rustdhipv2"
 readme = "README.md"
 repository = ""
 version = "0.1.0"
+# Each example should have an explicit `[[example]]` section here to
+# ensure that the correct features are enabled.
+autoexamples = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -43,10 +46,18 @@ num-bigint-dig = {version = "0.6.1"}
 libc-print = "0.1.15"
 
 [dev-dependencies]
+env_logger = "0.8.2"
+getopts = "0.2.21"
 
 [features]
 std = []
 default = ["std", "log"]
+
+[[example]]
+name = "hip_initiator"
+
+[[example]]
+name = "hip_responder"
 
 
 

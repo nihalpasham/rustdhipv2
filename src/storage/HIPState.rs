@@ -274,7 +274,7 @@ impl<'a> StateMachine<'a> {
             .is_none()
         {
             self.add_new_key(key.clone());
-            Ok(None)
+            Ok(self.hip_states.map_store.get(&HeaplessString { s: key }))
         } else {
             Ok(self.hip_states.map_store.get(&HeaplessString { s: key }))
         }
@@ -309,7 +309,7 @@ pub struct GenericValueStore<T> {
 }
 
 impl<T> GenericValueStore<T> {
-    pub fn new(buffer: T) -> Self {
+    pub fn new() -> Self {
         GenericValueStore {
             kv_store: [None, None, None, None, None],
         }
@@ -462,9 +462,16 @@ impl<'a, Q> Storage<'a, Q> {
 
     /// Inserts a new key along with the associated value into the map (map
     /// backed by GenericValueStore).
-    pub fn add_new_key(&mut self, key: String<U80>, val: Q) -> Result<Q> {
+    ///
+    /// - `Ok(None):`   indicates the supplied key, value pair does not exist
+    ///   and attempts to insert it into the store.
+    /// - `Err(HIPError):` indicates insertion failed.
+    pub fn add_new_key(&mut self, key: String<U80>, val: Q) -> Result<Option<Q>> {
         let status = match self.store.map_store.insert(HeaplessString { s: key }, val) {
-            Ok(val) => val.unwrap(),
+            Ok(val) => match val {
+                None => {hip_debug!("(key, value) pair inserted"); val},
+                _ => unreachable!(),
+            },
             Err(e) => return Err(HIPError::MapInsertionOpFailed),
         };
         Ok(status)

@@ -61,7 +61,7 @@ impl<T: AsRef<[u8]>> HIPPacket<T> {
             let header_len = ((1 + self.get_header_length()) * 8) as usize;
             if len < header_len {
                 Err(HIPError::Bufferistooshort)
-            } else if header_len < field::HIP_RECIEVERS_HIT.end {
+            } else if header_len != 8 && header_len < field::HIP_RECIEVERS_HIT.end {
                 Err(HIPError::IncorrectHeaderLength)
             } else {
                 Ok(())
@@ -384,22 +384,22 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> I1Packet<T> {
     #[inline]
     pub fn new_i1packet() -> Result<I1Packet<[u8; 80]>> {
         let mut fixed_hip_header = HIPPacket::new_checked([0; 80])?;
-        fixed_hip_header.set_packet_type(field::HIP_R1_PACKET as u8);
+        fixed_hip_header.set_packet_type(field::HIP_I1_PACKET as u8);
         fixed_hip_header.set_header_length((field::HIP_HEADER_LENGTH as u8 - 8) / 8);
         Ok(I1Packet::new(fixed_hip_header))
     }
 
     /// A method to sequentially add HIP parameters to a HIP packet
     pub fn add_param(&mut self, param: HIPParamsTypes<&[u8]>) {
-        let fixed_header_len = self.packet.get_header_length() * 8 + 8;
+        let header_len = self.packet.get_header_length() * 8 + 8;
         let param_len = param.param_len();
         let param_as_slice = param.into_inner();
         let data = self.packet.buffer.as_mut();
 
-        data[fixed_header_len as usize..fixed_header_len as usize + param_len]
+        data[header_len as usize..header_len as usize + param_len]
             .copy_from_slice(param_as_slice);
-        let new_len = fixed_header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8) / 8);
+        let new_len = header_len as usize + param_len;
+        self.packet.set_header_length((new_len as u8 - 8) / 8);
     }
 
     /// Returns a ref to the underlying buffer.

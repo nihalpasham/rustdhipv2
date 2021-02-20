@@ -19,6 +19,7 @@ use generic_array::GenericArray;
 use heapless::{consts::*, Vec};
 
 // use smoltcp::time::{Duration, Instant};
+use smoltcp::socket::{RawSocket, SocketRef};
 use smoltcp::wire::{IpProtocol, Ipv6Address, Ipv6Packet};
 
 pub fn option_as_ref<'a, Q: 'a + ParamMarker<'a, T>, T: 'a + AsRef<[u8]>>(
@@ -50,6 +51,11 @@ pub struct HIPDaemon<'a> {
 impl<'a> HIPDaemon<'a> {
     /// Construct a new HIP Daemon.
     pub fn new(
+        pubkey: Option<&'a [u8]>,
+        privkey: Option<&'a [u8]>,
+        hi: HostIdTypes,
+        hit_as_hexstring: Option<&'a str>,
+        hit_as_bytes: [u8; 16],
         state_store: &'a mut StateStore,
         keymat_store: &'a mut GenericValueStore<[u8; 800]>,
         dh_map: &'a mut GenericValueStore<InitiatorDHKeys>,
@@ -60,11 +66,11 @@ impl<'a> HIPDaemon<'a> {
         sa_map: &'a mut SARecordStore,
     ) -> Self {
         HIPDaemon {
-            pubkey: None,
-            privkey: None,
-            hi: HostIdTypes::__Nonexhaustive,
-            hit_as_hexstring: None,
-            hit_as_bytes: [0; 16],
+            pubkey,
+            privkey,
+            hi,
+            hit_as_hexstring,
+            hit_as_bytes,
             hip_state_machine: StateMachine::new(state_store),
             keymat_map: Storage::new(keymat_store),
             dh_map: Storage::new(dh_map),
@@ -82,7 +88,11 @@ impl<'a> HIPDaemon<'a> {
     ///
     /// For now, this method is a pretty huge monolith. Must see if we can split
     /// it into smaller chunks to improve readability.
-    pub fn process_hip_packet(&mut self, ipv6_packet: Ipv6Packet<&[u8]>) -> Result<()> {
+    pub fn process_hip_packet(&mut self, mut hip_socket: SocketRef<RawSocket>) -> Result<()> {
+        let ipv6_packet = hip_socket
+            .recv()
+            .and_then(Ipv6Packet::new_checked)
+            .map_err(|_| HIPError::Bufferistooshort)?;
         let mut src = ipv6_packet.src_addr();
         let mut dst = ipv6_packet.dst_addr();
 
@@ -584,9 +594,16 @@ impl<'a> HIPDaemon<'a> {
                     &hip_r1_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
                 );
                 hip_r1_packet.packet.set_checksum(checksum);
-                ipv6_buffer[ipv6_fixed_header_len as usize..].copy_from_slice(
+                ipv6_packet.payload_mut().copy_from_slice(
                     &hip_r1_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
                 );
+
+                hip_debug!("Sending R1 packet");
+                if hip_socket.can_send() {
+                    hip_socket.send_slice(ipv6_packet.as_ref());
+                } else {
+                    hip_trace!("failed to send R1 packet");
+                }
             }
 
             HIP_R1_PACKET => {
@@ -1846,6 +1863,12 @@ impl<'a> HIPDaemon<'a> {
                     );
                 }
 
+                if hip_socket.can_send() {
+                    hip_socket.send_slice(ipv6_packet.as_ref());
+                } else {
+                    hip_trace!("failed to send I2 packet");
+                }
+
                 if is_hit_smaller {
                     let sv = self.state_vars_map.get_mut(&rhit, &ihit)?;
                     sv.map(|s| match s.i2_packet {
@@ -1884,7 +1907,7 @@ impl<'a> HIPDaemon<'a> {
                 }
             }
 
-            HIP_R1_PACKET => {
+            HIP_I2_PACKET => {
                 hip_debug!("Received I2 packet");
 
                 let mut solution_param = None;
@@ -2787,10 +2810,16 @@ impl<'a> HIPDaemon<'a> {
                     hip_state.map(|s| s.r2_sent());
                     if let HeaplessStringTypes::U32(val) = dst_str {
                         hip_debug!(
-                            "Sending I2 packet to {:?}, bytes sent {:?}",
+                            "Sending R2 packet to {:?}, bytes sent {:?}",
                             val,
                             &ipv6_packet.total_len()
                         );
+                    }
+
+                    if hip_socket.can_send() {
+                        hip_socket.send_slice(ipv6_packet.as_ref());
+                    } else {
+                        hip_trace!("failed to send R2 packet");
                     }
                 }
 
@@ -3246,7 +3275,13 @@ impl<'a> HIPDaemon<'a> {
     ///
     /// This method constructs and sends an I1 Packet.
     /// For now, this does not include DNS resolution.
-    pub fn initiate_hip_connection(&mut self, rhit: [u8; 16], dst_ip: [u8; 16]) -> Result<()> {
+    pub fn initiate_hip_connection(
+        &mut self,
+        rhit: [u8; 16],
+        src_ip: [u8; 16],
+        dst_ip: [u8; 16],
+        mut hip_socket: SocketRef<RawSocket>,
+    ) -> Result<()> {
         let ihit = self.hit_as_bytes;
         let mut hip_state = None;
         let is_hit_smaller = Utils::is_hit_smaller(&ihit, &rhit);
@@ -3272,13 +3307,13 @@ impl<'a> HIPDaemon<'a> {
                 .ok_or_else(|| HIPError::FieldisNOTSet)?
                 .is_closed()
         {
-            hip_debug!("In Unassociated State {:?}", hip_state);
+            hip_debug!("HIP_STATE is: {:?}", hip_state);
             hip_debug!("Starting HIP BEX");
             // hip_debug!("");
 
             // HIP DH Groups Parameter. An 11 packet with a 12-byte DH Groups parameter
             // i.e. we're only interested in 3 groups ECDHNIST384 (0x8), ECDHNIST256 (0x7), ECDHSECP160R1 (0xa)
-            let mut dhgroups_param = DHGroupListParameter::new_checked([0; 12])?;
+            let mut dhgroups_param = DHGroupListParameter::new_checked([0; 16])?;
             dhgroups_param.init_dhgrouplist_param();
             dhgroups_param.set_groups(&[0x00, 0x8, 0x00, 0x7, 0x00, 0xa]);
 
@@ -3294,7 +3329,7 @@ impl<'a> HIPDaemon<'a> {
 
             let hip_pkt_size = (hip_i1_packet.packet.get_header_length() * 8 + 8) as u16;
             let computed_checksum = Utils::hip_ipv4_checksum(
-                &[0; 16],
+                &src_ip,
                 &dst_ip,
                 HIP_PROTOCOL as u8,
                 hip_pkt_size,
@@ -3311,7 +3346,7 @@ impl<'a> HIPDaemon<'a> {
             .map_err(|_| HIPError::Bufferistooshort)?;
             ipv6_packet.set_version(IPV6_VERSION as u8);
             ipv6_packet.set_dst_addr(Ipv6Address::from_bytes(&dst_ip));
-            ipv6_packet.set_src_addr(Ipv6Address::from_bytes(&[0; 16]));
+            ipv6_packet.set_src_addr(Ipv6Address::from_bytes(&src_ip));
             ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
             ipv6_packet.set_hop_limit(1);
             ipv6_packet.set_payload_len(hip_pkt_size);
@@ -3320,6 +3355,11 @@ impl<'a> HIPDaemon<'a> {
                 .copy_from_slice(&hip_i1_packet.inner_ref().as_ref()[..hip_pkt_size as usize]);
 
             hip_debug!("Sending I1 packet");
+            if hip_socket.can_send() {
+                hip_socket.send_slice(ipv6_packet.as_ref());
+            } else {
+                hip_trace!("failed to send I1 packet");
+            }
 
             // Transition to an I1-Sent state
             hip_state.map(|state| state.i1_sent());
@@ -3334,7 +3374,7 @@ impl<'a> HIPDaemon<'a> {
                             .ok_or_else(|| HIPError::Illegal)?,
                         &ihit,
                         &rhit,
-                        &[0; 16],
+                        &src_ip,
                         &dst_ip,
                         None,
                     ),
@@ -3358,7 +3398,7 @@ impl<'a> HIPDaemon<'a> {
                             .ok_or_else(|| HIPError::Illegal)?,
                         &ihit,
                         &rhit,
-                        &[0; 16],
+                        &src_ip,
                         &dst_ip,
                         None,
                     ),

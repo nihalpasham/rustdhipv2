@@ -16,6 +16,17 @@ pub enum HostIdTypes {
     ECDSAId160([u8; constants::SECP160R1_LENGTH * 2 + 2]),
     __Nonexhaustive,
 }
+
+impl<'a> HostIdTypes {
+    pub fn as_bytes(&self) -> &'_ [u8] {
+        match self {
+            HostIdTypes::ECDSAId256(val) => {val},
+            HostIdTypes::ECDSAId384(val) => {val},
+            HostIdTypes::ECDSAId160(val) => {val},
+            HostIdTypes::__Nonexhaustive => {&[]}
+        }
+    }
+}
 // pub struct RSAHostId<'a>(&'a [u8]);
 
 // impl<'a> RSAHostId<'a> {
