@@ -423,50 +423,58 @@ impl<'a> HIPDaemon<'a> {
 
                 // Concatenate constructed parameter buffers into a heapless Vec
 
-                #[rustfmt::skip]
-				let buf: Result<Vec<u8, _>> = match (puzzle_param, dh_param, hi_param) {
-					(
-						(HIPParamsTypes::PuzzleParam(puzzle_256), HIPParamsTypes::Default),
-						(HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
-						(HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
-					) => {
-						let mut param_buf: Vec<u8, U400> = Vec::new();
-                        for byte in puzzle_256.inner_ref().as_ref().iter()
+                // #[rustfmt::skip]
+                let buf: Result<Vec<u8, _>> = match (puzzle_param, dh_param, hi_param) {
+                    (
+                        (HIPParamsTypes::PuzzleParam(puzzle_256), HIPParamsTypes::Default),
+                        (HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
+                        (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
+                    ) => {
+                        let mut param_buf: Vec<u8, U400> = Vec::new();
+                        for byte in puzzle_256
+                            .inner_ref()
+                            .as_ref()
+                            .iter()
                             .chain(dh_256.inner_ref().as_ref().iter())
                             .chain(cipher_param.inner_ref().as_ref().iter())
                             .chain(esp_transform_param.inner_ref().as_ref().iter())
                             .chain(hi_256.inner_ref().as_ref().iter())
                             .chain(hit_suitlist_param.inner_ref().as_ref().iter())
                             .chain(dhgroups_param.inner_ref().as_ref().iter())
-                            .chain(transfmt_param.inner_ref().as_ref().iter()) {
-						  param_buf
-							.push(*byte)
-							.map_err(|_| HIPError::Bufferistooshort);
-						}
-						Ok(param_buf)
-					}
-					(
-						(HIPParamsTypes::Default, HIPParamsTypes::PuzzleParam(puzzle_384)),
-						(HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
-						(HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
-					) => {
-						let mut param_buf: Vec<u8, U400> = Vec::new();
-                        for byte in puzzle_384.inner_ref().as_ref().iter()
+                            .chain(transfmt_param.inner_ref().as_ref().iter())
+                        {
+                            param_buf
+                                .push(*byte)
+                                .map_err(|_| HIPError::Bufferistooshort);
+                        }
+                        Ok(param_buf)
+                    }
+                    (
+                        (HIPParamsTypes::Default, HIPParamsTypes::PuzzleParam(puzzle_384)),
+                        (HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
+                        (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
+                    ) => {
+                        let mut param_buf: Vec<u8, U400> = Vec::new();
+                        for byte in puzzle_384
+                            .inner_ref()
+                            .as_ref()
+                            .iter()
                             .chain(dh_384.inner_ref().as_ref().iter())
                             .chain(cipher_param.inner_ref().as_ref().iter())
                             .chain(esp_transform_param.inner_ref().as_ref().iter())
                             .chain(hi_384.inner_ref().as_ref().iter())
                             .chain(hit_suitlist_param.inner_ref().as_ref().iter())
                             .chain(dhgroups_param.inner_ref().as_ref().iter())
-                            .chain(transfmt_param.inner_ref().as_ref().iter()) {
-						  param_buf
-							.push(*byte)
-							.map_err(|_| HIPError::Bufferistooshort)?;
-						}
-						Ok(param_buf)
-					}
-					_ => unimplemented!(),
-				};
+                            .chain(transfmt_param.inner_ref().as_ref().iter())
+                        {
+                            param_buf
+                                .push(*byte)
+                                .map_err(|_| HIPError::Bufferistooshort)?;
+                        }
+                        Ok(param_buf)
+                    }
+                    _ => unimplemented!(),
+                };
 
                 let data_tobe_signed: Result<Vec<u8, _>> = match buf {
                     Ok(val) => {
