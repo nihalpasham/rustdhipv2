@@ -422,6 +422,7 @@ impl<'a> HIPDaemon<'a> {
                 };
 
                 // Concatenate constructed parameter buffers into a heapless Vec
+
                 #[rustfmt::skip]
 				let buf: Result<Vec<u8, _>> = match (puzzle_param, dh_param, hi_param) {
 					(
@@ -530,6 +531,7 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 // Add R1 parameters. List of mandatory parameters in an R1 packet
+
                 #[rustfmt::skip]
 				match (puzzle_param, dh_param, hi_param, signature_param) {
 					(
