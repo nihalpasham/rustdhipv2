@@ -1,0 +1,22 @@
+; id = {0x00006839}, range = [0x0000000000574e70-0x0000000000574ee0), name="rust_panic"
+; Source location: /rustc/9b471a3f5fe57e5c6e08acf665f2094422415a3d/library/std/src/panicking.rs:637
+555555AC8E70: 48 83 EC 58                sub    rsp, 0x58
+555555AC8E74: 48 89 7C 24 08             mov    qword ptr [rsp + 0x8], rdi
+555555AC8E79: 48 89 74 24 10             mov    qword ptr [rsp + 0x10], rsi
+555555AC8E7E: 48 8D 7C 24 08             lea    rdi, [rsp + 0x8]
+555555AC8E83: FF 15 C7 18 15 00          call   qword ptr [rip + 0x1518c7]
+555555AC8E89: 89 44 24 04                mov    dword ptr [rsp + 0x4], eax
+555555AC8E8D: 48 8D 44 24 04             lea    rax, [rsp + 0x4]
+555555AC8E92: 48 89 44 24 18             mov    qword ptr [rsp + 0x18], rax
+555555AC8E97: 48 8D 05 42 99 01 00       lea    rax, [rip + 0x19942]  ; fmt at num.rs:279
+555555AC8E9E: 48 89 44 24 20             mov    qword ptr [rsp + 0x20], rax
+555555AC8EA3: 48 8D 05 56 23 14 00       lea    rax, [rip + 0x142356]
+555555AC8EAA: 48 89 44 24 28             mov    qword ptr [rsp + 0x28], rax
+555555AC8EAF: 48 C7 44 24 30 01 00 00 >  mov    qword ptr [rsp + 0x30], 0x1
+555555AC8EB8: 48 C7 44 24 38 00 00 00 >  mov    qword ptr [rsp + 0x38], 0x0
+555555AC8EC1: 48 8D 44 24 18             lea    rax, [rsp + 0x18]
+555555AC8EC6: 48 89 44 24 48             mov    qword ptr [rsp + 0x48], rax
+555555AC8ECB: 48 C7 44 24 50 01 00 00 >  mov    qword ptr [rsp + 0x50], 0x1
+555555AC8ED4: 48 8D 7C 24 28             lea    rdi, [rsp + 0x28]
+555555AC8ED9: E8 B2 EA FF FF             call   0x555555ac7990  ; abort at util.rs:17
+555555AC8EDE: 0F 0B                      ud2    

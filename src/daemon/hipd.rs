@@ -3,7 +3,7 @@
 use core::convert::TryInto;
 
 use crate::storage::SecurityAssociations::{
-    SARecordStore, SecurityAssociationDatabase, SecurityAssociationRecord,
+    SAData, SARecordStore, SecurityAssociationDatabase, SecurityAssociationRecord,
 };
 use crate::{storage::HIPState::*, utils::puzzles};
 
@@ -20,7 +20,7 @@ use heapless::{consts::*, Vec};
 
 // use smoltcp::time::{Duration, Instant};
 use smoltcp::socket::{RawSocket, SocketRef};
-use smoltcp::wire::{IpProtocol, Ipv6Address, Ipv6Packet};
+use smoltcp::wire::{IpProtocol, Ipv4Address, Ipv4Packet, Ipv6Address, Ipv6Packet};
 
 pub fn option_as_ref<'a, Q: 'a + ParamMarker<'a, T>, T: 'a + AsRef<[u8]>>(
     val: Option<&'a Q>,
@@ -89,17 +89,17 @@ impl<'a> HIPDaemon<'a> {
     /// For now, this method is a pretty huge monolith. Must see if we can split
     /// it into smaller chunks to improve readability.
     pub fn process_hip_packet(&mut self, mut hip_socket: SocketRef<RawSocket>) -> Result<()> {
-        let ipv6_packet = hip_socket
+        let ipv4_packet = hip_socket
             .recv()
-            .and_then(Ipv6Packet::new_checked)
+            .and_then(Ipv4Packet::new_checked)
             .map_err(|_| HIPError::Bufferistooshort)?;
-        let mut src = ipv6_packet.src_addr();
-        let mut dst = ipv6_packet.dst_addr();
+        let mut src = ipv4_packet.src_addr();
+        let mut dst = ipv4_packet.dst_addr();
 
         // Sequence of checks
-        // Check to see if the ipv6 packet's next header is correctly set to HIP
+        // Check to see if the ipv4 packet's protocol header is correctly set to HIP
         // protocol identifier.
-        let protocol = if let IpProtocol::Unknown(val) = ipv6_packet.next_header() {
+        let protocol = if let IpProtocol::Unknown(val) = ipv4_packet.protocol() {
             val
         } else {
             return Err(HIPError::Unrecognized);
@@ -110,11 +110,11 @@ impl<'a> HIPDaemon<'a> {
         }
 
         // All HIP packets are a multiple of 8 bytes.
-        if ipv6_packet.payload().len() % 8 != 0 {
+        if ipv4_packet.payload().len() % 8 != 0 {
             hip_debug!("Invalid payload. HIP payload (i.e. packet) must be a multiple of 8 bytes");
         }
 
-        let hip_packet = HIPPacket::new_checked(ipv6_packet.payload())?;
+        let hip_packet = HIPPacket::new_checked(ipv4_packet.payload())?;
         let ihit = hip_packet.get_senders_hit();
         let rhit = hip_packet.get_receivers_hit();
         let mut hip_state = None;
@@ -151,7 +151,7 @@ impl<'a> HIPDaemon<'a> {
             &dst.0,
             protocol,
             (hip_packet.get_header_length() * 8 + 8) as u16,
-            ipv6_packet.payload(),
+            ipv4_packet.payload(),
         );
         if original_checksum != computed_checksum {
             hip_trace!("Invalid checksum");
@@ -571,36 +571,52 @@ impl<'a> HIPDaemon<'a> {
                 core::mem::swap(&mut src, &mut dst);
 
                 // Construct IPv6 packet
-                let ipv6_payload_len = (hip_r1_packet.packet.get_header_length() * 8 + 8) as u16;
-                let ipv6_fixed_header_len = 0x28u8;
-                let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
-                let mut ipv6_packet = Ipv6Packet::new_checked(
-                    &mut ipv6_buffer[..ipv6_fixed_header_len as usize + ipv6_payload_len as usize],
+                let ipv4_payload_len = (hip_r1_packet.packet.get_header_length() * 8 + 8) as u16;
+                let ipv4_fixed_header_len = 0x28u8;
+                let mut ipv4_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+                let mut ipv4_packet = Ipv4Packet::new_checked(
+                    &mut ipv4_buffer[..ipv4_fixed_header_len as usize + ipv4_payload_len as usize],
                 )
                 .map_err(|_| HIPError::Bufferistooshort)?;
-                ipv6_packet.set_version(IPV6_VERSION as u8);
-                ipv6_packet.set_dst_addr(dst);
-                ipv6_packet.set_src_addr(src);
-                ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
-                ipv6_packet.set_hop_limit(1);
-                ipv6_packet.set_payload_len(ipv6_payload_len);
+                ipv4_packet.set_version(IPV4_VERSION as u8);
+                ipv4_packet.set_dst_addr(dst);
+                ipv4_packet.set_src_addr(src);
+                ipv4_packet.set_hop_limit(IPV4_DEFAULT_TTL as u8);
+                ipv4_packet.set_protocol(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+                ipv4_packet.set_header_len((IPV4_IHL_NO_OPTIONS * 4) as u8);
+                ipv4_packet.set_total_len(ipv4_fixed_header_len as u16 + ipv4_payload_len);
+
+                // // Construct IPv6 packet
+                // let ipv6_payload_len = (hip_r1_packet.packet.get_header_length() * 8 + 8) as u16;
+                // let ipv6_fixed_header_len = 0x28u8;
+                // let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+                // let mut ipv6_packet = Ipv6Packet::new_checked(
+                //     &mut ipv6_buffer[..ipv6_fixed_header_len as usize + ipv6_payload_len as usize],
+                // )
+                // .map_err(|_| HIPError::Bufferistooshort)?;
+                // ipv6_packet.set_version(IPV6_VERSION as u8);
+                // ipv6_packet.set_dst_addr(dst);
+                // ipv6_packet.set_src_addr(src);
+                // ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+                // ipv6_packet.set_hop_limit(1);
+                // ipv6_packet.set_payload_len(ipv6_payload_len);
 
                 // Compute and set HIP checksum
                 let checksum = Utils::hip_ipv4_checksum(
                     &src.0,
                     &dst.0,
                     protocol,
-                    ipv6_payload_len,
-                    &hip_r1_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
+                    ipv4_payload_len,
+                    &hip_r1_packet.inner_ref().as_ref()[..ipv4_payload_len as usize],
                 );
                 hip_r1_packet.packet.set_checksum(checksum);
-                ipv6_packet.payload_mut().copy_from_slice(
-                    &hip_r1_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
+                ipv4_packet.payload_mut().copy_from_slice(
+                    &hip_r1_packet.inner_ref().as_ref()[..ipv4_payload_len as usize],
                 );
 
                 hip_debug!("Sending R1 packet");
                 if hip_socket.can_send() {
-                    hip_socket.send_slice(ipv6_packet.as_ref());
+                    hip_socket.send_slice(ipv4_packet.as_ref());
                 } else {
                     hip_trace!("failed to send R1 packet");
                 }
@@ -1825,32 +1841,48 @@ impl<'a> HIPDaemon<'a> {
                 // Swap src & dst IPv6 addresses
                 core::mem::swap(&mut src, &mut dst);
 
-                // Construct IPv6 packet
-                let ipv6_payload_len = (hip_i2_packet.packet.get_header_length() * 8 + 8) as u16;
-                let ipv6_fixed_header_len = 0x28u8;
-                let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
-                let mut ipv6_packet = Ipv6Packet::new_checked(
-                    &mut ipv6_buffer[..ipv6_fixed_header_len as usize + ipv6_payload_len as usize],
+                // Construct IPv4 packet
+                let ipv4_payload_len = (hip_i2_packet.packet.get_header_length() * 8 + 8) as u16;
+                let ipv4_fixed_header_len = 0x14u8;
+                let mut ipv4_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+                let mut ipv4_packet = Ipv4Packet::new_checked(
+                    &mut ipv4_buffer[..ipv4_fixed_header_len as usize + ipv4_payload_len as usize],
                 )
                 .map_err(|_| HIPError::Bufferistooshort)?;
-                ipv6_packet.set_version(IPV6_VERSION as u8);
-                ipv6_packet.set_dst_addr(dst);
-                ipv6_packet.set_src_addr(src);
-                ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
-                ipv6_packet.set_hop_limit(1);
-                ipv6_packet.set_payload_len(ipv6_payload_len);
+                ipv4_packet.set_version(IPV4_VERSION as u8);
+                ipv4_packet.set_dst_addr(dst);
+                ipv4_packet.set_src_addr(src);
+                ipv4_packet.set_hop_limit(IPV4_DEFAULT_TTL as u8);
+                ipv4_packet.set_protocol(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+                ipv4_packet.set_header_len((IPV4_IHL_NO_OPTIONS * 4) as u8);
+                ipv4_packet.set_total_len(ipv4_fixed_header_len as u16 + ipv4_payload_len);
+
+                // // Construct IPv6 packet
+                // let ipv6_payload_len = (hip_i2_packet.packet.get_header_length() * 8 + 8) as u16;
+                // let ipv6_fixed_header_len = 0x28u8;
+                // let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+                // let mut ipv6_packet = Ipv6Packet::new_checked(
+                //     &mut ipv6_buffer[..ipv6_fixed_header_len as usize + ipv6_payload_len as usize],
+                // )
+                // .map_err(|_| HIPError::Bufferistooshort)?;
+                // ipv6_packet.set_version(IPV6_VERSION as u8);
+                // ipv6_packet.set_dst_addr(dst);
+                // ipv6_packet.set_src_addr(src);
+                // ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+                // ipv6_packet.set_hop_limit(1);
+                // ipv6_packet.set_payload_len(ipv6_payload_len);
 
                 // Compute and set HIP checksum
                 let checksum = Utils::hip_ipv4_checksum(
                     &src.0,
                     &dst.0,
                     protocol,
-                    ipv6_payload_len,
-                    &hip_i2_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
+                    ipv4_payload_len,
+                    &hip_i2_packet.inner_ref().as_ref()[..ipv4_payload_len as usize],
                 );
                 hip_i2_packet.packet.set_checksum(checksum);
-                ipv6_packet.payload_mut().copy_from_slice(
-                    &hip_i2_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
+                ipv4_packet.payload_mut().copy_from_slice(
+                    &hip_i2_packet.inner_ref().as_ref()[..ipv4_payload_len as usize],
                 );
 
                 // hex formatted string of dst IPv6 address
@@ -1859,12 +1891,12 @@ impl<'a> HIPDaemon<'a> {
                     hip_debug!(
                         "Sending I2 packet to {:?}, bytes sent {:?}",
                         val,
-                        &ipv6_packet.total_len()
+                        &ipv4_packet.total_len()
                     );
                 }
 
                 if hip_socket.can_send() {
-                    hip_socket.send_slice(ipv6_packet.as_ref());
+                    hip_socket.send_slice(ipv4_packet.as_ref());
                 } else {
                     hip_trace!("failed to send I2 packet");
                 }
@@ -1874,8 +1906,8 @@ impl<'a> HIPDaemon<'a> {
                     sv.map(|s| match s.i2_packet {
                         None => {
                             s.i2_packet = Some(I2Pkt {
-                                buffer: ipv6_buffer,
-                                len: ipv6_payload_len,
+                                buffer: ipv4_buffer,
+                                len: ipv4_payload_len,
                             });
                         }
                         Some(val) => todo!(),
@@ -1885,8 +1917,8 @@ impl<'a> HIPDaemon<'a> {
                     sv.map(|s| match s.i2_packet {
                         None => {
                             s.i2_packet = Some(I2Pkt {
-                                buffer: ipv6_buffer,
-                                len: ipv6_payload_len,
+                                buffer: ipv4_buffer,
+                                len: ipv4_payload_len,
                             });
                         }
                         Some(val) => todo!(),
@@ -2752,32 +2784,48 @@ impl<'a> HIPDaemon<'a> {
                 // Swap src & dst IPv6 addresses
                 core::mem::swap(&mut src, &mut dst);
 
-                // Construct IPv6 packet
-                let ipv6_payload_len = (hip_r2_packet.packet.get_header_length() * 8 + 8) as u16;
-                let ipv6_fixed_header_len = 0x28u8;
-                let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
-                let mut ipv6_packet = Ipv6Packet::new_checked(
-                    &mut ipv6_buffer[..ipv6_fixed_header_len as usize + ipv6_payload_len as usize],
+                // Construct IPv4 packet
+                let ipv4_payload_len = (hip_r2_packet.packet.get_header_length() * 8 + 8) as u16;
+                let ipv4_fixed_header_len = 0x14u8;
+                let mut ipv4_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+                let mut ipv4_packet = Ipv4Packet::new_checked(
+                    &mut ipv4_buffer[..ipv4_fixed_header_len as usize + ipv4_payload_len as usize],
                 )
                 .map_err(|_| HIPError::Bufferistooshort)?;
-                ipv6_packet.set_version(IPV6_VERSION as u8);
-                ipv6_packet.set_dst_addr(dst);
-                ipv6_packet.set_src_addr(src);
-                ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
-                ipv6_packet.set_hop_limit(1);
-                ipv6_packet.set_payload_len(ipv6_payload_len);
+                ipv4_packet.set_version(IPV4_VERSION as u8);
+                ipv4_packet.set_dst_addr(dst);
+                ipv4_packet.set_src_addr(src);
+                ipv4_packet.set_hop_limit(IPV4_DEFAULT_TTL as u8);
+                ipv4_packet.set_protocol(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+                ipv4_packet.set_header_len((IPV4_IHL_NO_OPTIONS * 4) as u8);
+                ipv4_packet.set_total_len(ipv4_fixed_header_len as u16 + ipv4_payload_len);
+
+                // // Construct IPv6 packet
+                // let ipv6_payload_len = (hip_r2_packet.packet.get_header_length() * 8 + 8) as u16;
+                // let ipv6_fixed_header_len = 0x28u8;
+                // let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+                // let mut ipv6_packet = Ipv6Packet::new_checked(
+                //     &mut ipv6_buffer[..ipv6_fixed_header_len as usize + ipv6_payload_len as usize],
+                // )
+                // .map_err(|_| HIPError::Bufferistooshort)?;
+                // ipv6_packet.set_version(IPV6_VERSION as u8);
+                // ipv6_packet.set_dst_addr(dst);
+                // ipv6_packet.set_src_addr(src);
+                // ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+                // ipv6_packet.set_hop_limit(1);
+                // ipv6_packet.set_payload_len(ipv6_payload_len);
 
                 // Compute and set HIP checksum
                 let checksum = Utils::hip_ipv4_checksum(
                     &src.0,
                     &dst.0,
                     protocol,
-                    ipv6_payload_len,
-                    &hip_r2_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
+                    ipv4_payload_len,
+                    &hip_r2_packet.inner_ref().as_ref()[..ipv4_payload_len as usize],
                 );
                 hip_r2_packet.packet.set_checksum(checksum);
-                ipv6_packet.payload_mut().copy_from_slice(
-                    &hip_r2_packet.inner_ref().as_ref()[..ipv6_payload_len as usize],
+                ipv4_packet.payload_mut().copy_from_slice(
+                    &hip_r2_packet.inner_ref().as_ref()[..ipv4_payload_len as usize],
                 );
 
                 // hex formatted string of dst IPv6 address
@@ -2812,12 +2860,12 @@ impl<'a> HIPDaemon<'a> {
                         hip_debug!(
                             "Sending R2 packet to {:?}, bytes sent {:?}",
                             val,
-                            &ipv6_packet.total_len()
+                            &ipv4_packet.total_len()
                         );
                     }
 
                     if hip_socket.can_send() {
-                        hip_socket.send_slice(ipv6_packet.as_ref());
+                        hip_socket.send_slice(ipv4_packet.as_ref());
                     } else {
                         hip_trace!("failed to send R2 packet");
                     }
@@ -2839,7 +2887,12 @@ impl<'a> HIPDaemon<'a> {
                             &rhit,
                         )?;
                         let mut sa_record = SecurityAssociationRecord::new(
-                            0x2, 0x1, aes_key, hmac_key, src.0, dst.0,
+                            0x2,
+                            0x1,
+                            aes_key,
+                            hmac_key,
+                            SAData::Typev4(src.0),
+                            SAData::Typev4(dst.0),
                         );
                         sa_record.set_spi(initiators_spi.ok_or_else(|| HIPError::__Nonexhaustive)?);
                         let key = Utils::hex_formatted_hit_bytes(Some(&rhit), Some(&ihit))?;
@@ -2857,7 +2910,12 @@ impl<'a> HIPDaemon<'a> {
                             &rhit,
                         )?;
                         let mut sa_record = SecurityAssociationRecord::new(
-                            0x2, 0x1, aes_key, hmac_key, src.0, dst.0,
+                            0x2,
+                            0x1,
+                            aes_key,
+                            hmac_key,
+                            SAData::Typev4(src.0),
+                            SAData::Typev4(dst.0),
                         );
                         sa_record.set_spi(initiators_spi.ok_or_else(|| HIPError::__Nonexhaustive)?);
                         let key = Utils::hex_formatted_hit_bytes(Some(&rhit), Some(&ihit))?;
@@ -2879,8 +2937,14 @@ impl<'a> HIPDaemon<'a> {
                             &ihit,
                             &rhit,
                         )?;
-                        let mut sa_record =
-                            SecurityAssociationRecord::new(0x2, 0x1, aes_key, hmac_key, rhit, ihit);
+                        let mut sa_record = SecurityAssociationRecord::new(
+                            0x2,
+                            0x1,
+                            aes_key,
+                            hmac_key,
+                            SAData::Typev6(rhit),
+                            SAData::Typev6(ihit),
+                        );
                         sa_record.set_spi(initiators_spi.ok_or_else(|| HIPError::__Nonexhaustive)?);
                         let key = Utils::hex_formatted_hit_bytes(Some(&dst.0), Some(&src.0))?;
                         if let HeaplessStringTypes::U64(key) = key {
@@ -2896,8 +2960,14 @@ impl<'a> HIPDaemon<'a> {
                             &ihit,
                             &rhit,
                         )?;
-                        let mut sa_record =
-                            SecurityAssociationRecord::new(0x2, 0x1, aes_key, hmac_key, rhit, ihit);
+                        let mut sa_record = SecurityAssociationRecord::new(
+                            0x2,
+                            0x1,
+                            aes_key,
+                            hmac_key,
+                            SAData::Typev6(rhit),
+                            SAData::Typev6(ihit),
+                        );
                         sa_record.set_spi(initiators_spi.ok_or_else(|| HIPError::__Nonexhaustive)?);
                         let key = Utils::hex_formatted_hit_bytes(Some(&dst.0), Some(&src.0))?;
                         if let HeaplessStringTypes::U64(key) = key {
@@ -3172,7 +3242,12 @@ impl<'a> HIPDaemon<'a> {
                             &rhit,
                         )?;
                         let mut sa_record = SecurityAssociationRecord::new(
-                            0x2, 0x1, aes_key, hmac_key, src.0, dst.0,
+                            0x2,
+                            0x1,
+                            aes_key,
+                            hmac_key,
+                            SAData::Typev4(src.0),
+                            SAData::Typev4(dst.0),
                         );
                         sa_record
                             .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
@@ -3191,7 +3266,12 @@ impl<'a> HIPDaemon<'a> {
                             &rhit,
                         )?;
                         let mut sa_record = SecurityAssociationRecord::new(
-                            0x2, 0x1, aes_key, hmac_key, src.0, dst.0,
+                            0x2,
+                            0x1,
+                            aes_key,
+                            hmac_key,
+                            SAData::Typev4(src.0),
+                            SAData::Typev4(dst.0),
                         );
                         sa_record
                             .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
@@ -3214,8 +3294,14 @@ impl<'a> HIPDaemon<'a> {
                             &ihit,
                             &rhit,
                         )?;
-                        let mut sa_record =
-                            SecurityAssociationRecord::new(0x2, 0x1, aes_key, hmac_key, rhit, ihit);
+                        let mut sa_record = SecurityAssociationRecord::new(
+                            0x2,
+                            0x1,
+                            aes_key,
+                            hmac_key,
+                            SAData::Typev6(rhit),
+                            SAData::Typev6(ihit),
+                        );
                         sa_record
                             .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
                         let key = Utils::hex_formatted_hit_bytes(Some(&dst.0), Some(&src.0))?;
@@ -3232,8 +3318,14 @@ impl<'a> HIPDaemon<'a> {
                             &ihit,
                             &rhit,
                         )?;
-                        let mut sa_record =
-                            SecurityAssociationRecord::new(0x2, 0x1, aes_key, hmac_key, rhit, ihit);
+                        let mut sa_record = SecurityAssociationRecord::new(
+                            0x2,
+                            0x1,
+                            aes_key,
+                            hmac_key,
+                            SAData::Typev6(rhit),
+                            SAData::Typev6(ihit),
+                        );
                         sa_record
                             .set_spi(responders_spi.ok_or_else(|| HIPError::__Nonexhaustive)??);
                         let key = Utils::hex_formatted_hit_bytes(Some(&dst.0), Some(&src.0))?;
@@ -3278,8 +3370,8 @@ impl<'a> HIPDaemon<'a> {
     pub fn initiate_hip_connection(
         &mut self,
         rhit: [u8; 16],
-        src_ip: [u8; 16],
-        dst_ip: [u8; 16],
+        src_ip: [u8; 4],
+        dst_ip: [u8; 4],
         mut hip_socket: SocketRef<RawSocket>,
     ) -> Result<()> {
         let ihit = self.hit_as_bytes;
@@ -3307,7 +3399,7 @@ impl<'a> HIPDaemon<'a> {
                 .ok_or_else(|| HIPError::FieldisNOTSet)?
                 .is_closed()
         {
-            hip_debug!("HIP_STATE is: {:?}", hip_state);
+            hip_debug!("HIP_STATE ==: {:?}", hip_state);
             hip_debug!("Starting HIP BEX");
             // hip_debug!("");
 
@@ -3337,26 +3429,44 @@ impl<'a> HIPDaemon<'a> {
             );
             hip_i1_packet.packet.set_checksum(computed_checksum);
 
-            // Construct an IPv6 packet
-            let ipv6_fixed_header_len = 0x28u8;
-            let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
-            let mut ipv6_packet = Ipv6Packet::new_checked(
-                &mut ipv6_buffer[..ipv6_fixed_header_len as usize + hip_pkt_size as usize],
+            // Construct an IPv4 packet
+            let ipv4_fixed_header_len = 0x14u8;
+            let mut ipv4_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+            let mut ipv4_packet = Ipv4Packet::new_checked(
+                &mut ipv4_buffer[..ipv4_fixed_header_len as usize + hip_pkt_size as usize],
             )
             .map_err(|_| HIPError::Bufferistooshort)?;
-            ipv6_packet.set_version(IPV6_VERSION as u8);
-            ipv6_packet.set_dst_addr(Ipv6Address::from_bytes(&dst_ip));
-            ipv6_packet.set_src_addr(Ipv6Address::from_bytes(&src_ip));
-            ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
-            ipv6_packet.set_hop_limit(1);
-            ipv6_packet.set_payload_len(hip_pkt_size);
-            ipv6_packet
+            ipv4_packet.set_version(IPV4_VERSION as u8);
+            ipv4_packet.set_dst_addr(Ipv4Address::from_bytes(&dst_ip));
+            ipv4_packet.set_src_addr(Ipv4Address::from_bytes(&src_ip));
+            ipv4_packet.set_hop_limit(IPV4_DEFAULT_TTL as u8);
+            ipv4_packet.set_protocol(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+            ipv4_packet.set_header_len((IPV4_IHL_NO_OPTIONS * 4) as u8);
+            ipv4_packet.set_total_len(ipv4_fixed_header_len as u16 + hip_pkt_size);
+            ipv4_packet
                 .payload_mut()
                 .copy_from_slice(&hip_i1_packet.inner_ref().as_ref()[..hip_pkt_size as usize]);
 
+            // // Construct an IPv6 packet
+            // let ipv6_fixed_header_len = 0x28u8;
+            // let mut ipv6_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
+            // let mut ipv6_packet = Ipv6Packet::new_checked(
+            //     &mut ipv6_buffer[..ipv6_fixed_header_len as usize + hip_pkt_size as usize],
+            // )
+            // .map_err(|_| HIPError::Bufferistooshort)?;
+            // ipv6_packet.set_version(IPV6_VERSION as u8);
+            // ipv6_packet.set_dst_addr(Ipv6Address::from_bytes(&dst_ip));
+            // ipv6_packet.set_src_addr(Ipv6Address::from_bytes(&src_ip));
+            // ipv6_packet.set_next_header(IpProtocol::Unknown(HIP_PROTOCOL as u8));
+            // ipv6_packet.set_hop_limit(1);
+            // ipv6_packet.set_payload_len(hip_pkt_size);
+            // ipv6_packet
+            //     .payload_mut()
+            //     .copy_from_slice(&hip_i1_packet.inner_ref().as_ref()[..hip_pkt_size as usize]);
+
             hip_debug!("Sending I1 packet");
             if hip_socket.can_send() {
-                hip_socket.send_slice(ipv6_packet.as_ref());
+                hip_socket.send_slice(ipv4_packet.as_ref());
             } else {
                 hip_trace!("failed to send I1 packet");
             }

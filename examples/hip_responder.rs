@@ -19,7 +19,7 @@ use smoltcp::{
     phy::{wait as phy_wait, TapInterface},
     socket::{RawPacketMetadata, RawSocket, RawSocketBuffer, SocketRef, SocketSet},
     time::Instant,
-    wire::{EthernetAddress, IpAddress, IpCidr, IpProtocol, IpVersion, Ipv6Address, Ipv6Packet},
+    wire::{EthernetAddress, IpAddress, IpCidr, IpProtocol, IpVersion, Ipv4Address},
 };
 use std::os::unix::io::AsRawFd;
 use std::str::FromStr;
@@ -33,12 +33,12 @@ fn main() {
 
     let neighbor_cache = NeighborCache::new(BTreeMap::new());
     let ethernet_addr = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
-    let ip_addrs = [IpCidr::new(IpAddress::v6(0xfdbb, 0, 0, 0, 0, 0, 0, 2), 64)];
+    let ip_addrs = [IpCidr::new(IpAddress::v4(192, 168, 69, 2), 24)];
 
-    let default_v6_gw = Ipv6Address::new(0xfe80, 0, 0, 0, 0, 0, 0, 0x100);
-    let mut routes_storage = [None; 2];
+    let default_v4_gw = Ipv4Address::new(192, 168, 69, 100);
+    let mut routes_storage = [None; 1];
     let mut routes = Routes::new(&mut routes_storage[..]);
-    routes.add_default_ipv6_route(default_v6_gw).unwrap();
+    routes.add_default_ipv4_route(default_v4_gw).unwrap();
 
     let mut iface = EthernetInterfaceBuilder::new(device)
         .ethernet_addr(ethernet_addr)
@@ -53,7 +53,7 @@ fn main() {
     let raw_rx_buffer = RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; 2], vec![0; 1024]);
     let raw_tx_buffer = RawSocketBuffer::new(vec![RawPacketMetadata::EMPTY; 2], vec![0; 1024]);
     let raw_socket = RawSocket::new(
-        IpVersion::Ipv6,
+        IpVersion::Ipv4,
         IpProtocol::Unknown(HIP_PROTOCOL as u8),
         raw_rx_buffer,
         raw_tx_buffer,
@@ -65,12 +65,10 @@ fn main() {
     let initiator_pk = ECDHNISTP256::generate_public_key(&initiator_sk);
     let serialized_initiator_sk = initiator_sk.to_bytes();
     let serialized_initiator_pk = initiator_pk.to_bytes();
-    let pubkey_x: [u8; 32] = initiator_pk.to_bytes().as_slice()
-        [1..NIST_256_PUBKEY_X_LEN + 1]
+    let pubkey_x: [u8; 32] = initiator_pk.to_bytes().as_slice()[1..NIST_256_PUBKEY_X_LEN + 1]
         .try_into()
         .unwrap();
-    let pubkey_y: [u8; 32] = initiator_pk.to_bytes().as_slice()
-        [NIST_256_PUBKEY_X_LEN + 1..]
+    let pubkey_y: [u8; 32] = initiator_pk.to_bytes().as_slice()[NIST_256_PUBKEY_X_LEN + 1..]
         .try_into()
         .unwrap();
 
@@ -122,5 +120,6 @@ fn main() {
                 hipd.process_hip_packet(socket);
             }
         }
+        phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");
     }
 }

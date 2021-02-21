@@ -22,19 +22,18 @@ const HEX_CHARS_LOWER: &[u8; 16] = b"0123456789abcdef";
 pub enum HeaplessStringTypes {
     U64(String<U80>),
     U32(String<U40>),
+    U16(String<U20>),
 }
 
 impl HeaplessStringTypes {
     pub fn as_str(&self) -> &str {
         match self {
-            HeaplessStringTypes::U64(str) => {str.as_str()},
-            HeaplessStringTypes::U32(str) => {str.as_str()}
+            HeaplessStringTypes::U64(str) => str.as_str(),
+            HeaplessStringTypes::U32(str) => str.as_str(),
+            HeaplessStringTypes::U16(str) => str.as_str(),
         }
     }
 }
-    
-
-
 pub struct Utils;
 
 impl Utils {
@@ -54,34 +53,64 @@ impl Utils {
     ) -> Result<HeaplessStringTypes> {
         match (ihit, rhit) {
             (Some(ihit), Some(rhit)) => {
-                if ihit.len() != 16 || rhit.len() != 16 {
-                    return Err(HIPError::IncorrectLength);
-                };
-                let mut key_bytes = [0; 32];
-                let _temp = ihit
-                    .iter()
-                    .chain(rhit.iter())
-                    .enumerate()
-                    .for_each(|(i, c)| key_bytes[i] = *c);
+                match (ihit.len(), rhit.len()) {
+                    (0x10, 0x10) => {
+                        let mut key_bytes = [0; 32];
+                        let _temp = ihit
+                            .iter()
+                            .chain(rhit.iter())
+                            .enumerate()
+                            .for_each(|(i, c)| key_bytes[i] = *c);
 
-                let mut key_string: String<U80> = String::new();
-                let _temp = key_bytes.iter().enumerate().for_each(|(i, byte)| {
-                    key_string
-                        .push(HEX_CHARS_LOWER[(byte >> 4) as usize] as char)
-                        .and_then(|_| {
-                            key_string.push(HEX_CHARS_LOWER[(byte & 0x0F) as usize] as char)
+                        let mut key_string: String<U80> = String::new();
+                        let _temp = key_bytes.iter().enumerate().for_each(|(i, byte)| {
+                            key_string
+                                .push(HEX_CHARS_LOWER[(byte >> 4) as usize] as char)
+                                .and_then(|_| {
+                                    key_string.push(HEX_CHARS_LOWER[(byte & 0x0F) as usize] as char)
+                                });
+                            if i == 1 {
+                                key_string.push(':')
+                            } else if i > 1 && ((i - 1) % 2) == 0 {
+                                key_string.push(':')
+                            } else {
+                                Ok(())
+                            };
                         });
-                    if i == 1 {
-                        key_string.push(':')
-                    } else if i > 1 && ((i - 1) % 2) == 0 {
-                        key_string.push(':')
-                    } else {
-                        Ok(())
-                    };
-                });
-                key_string.pop();
-                // libc_println!("{:?}", key_string);
-                Ok(HeaplessStringTypes::U64(key_string))
+                        key_string.pop();
+                        // libc_println!("{:?}", key_string);
+                        Ok(HeaplessStringTypes::U64(key_string))
+                    }
+                    (0x4, 0x4) => {
+                        let mut key_bytes = [0; 8];
+                        let _temp = ihit
+                            .iter()
+                            .chain(rhit.iter())
+                            .enumerate()
+                            .for_each(|(i, c)| key_bytes[i] = *c);
+
+                        let mut key_string: String<U20> = String::new();
+                        let _temp = key_bytes.iter().enumerate().for_each(|(i, byte)| {
+                            key_string
+                                .push(HEX_CHARS_LOWER[(byte >> 4) as usize] as char)
+                                .and_then(|_| {
+                                    key_string.push(HEX_CHARS_LOWER[(byte & 0x0F) as usize] as char)
+                                });
+                            if i == 1 {
+                                key_string.push(':')
+                            } else if i > 1 && ((i - 1) % 2) == 0 {
+                                key_string.push(':')
+                            } else {
+                                Ok(())
+                            };
+                        });
+                        key_string.pop();
+                        // libc_println!("{:?}", key_string);
+                        Ok(HeaplessStringTypes::U16(key_string))
+                    }
+
+                    (_, _) => Err(HIPError::IncorrectLength),
+                }
             }
             (Some(ihit), None) => {
                 let mut key_string: String<U40> = String::new();
@@ -417,7 +446,24 @@ mod test {
             HeaplessStringTypes::U64(
                 String::from_str("fe80:0000:0000:0000:fbf4:089f:295e:345f:ff02:0000:0000:0000:0000:0000:0000:0002").unwrap()
             ),
-            result.unwrap()
+            result.clone().unwrap()
         );
+        println!("{:?}", if let Ok(HeaplessStringTypes::U64(val)) = result {
+            val.as_str().len()
+        } else { unimplemented!()});
+
+        let ipv4_src = [1, 2, 3, 4];
+        let ipv4_dst = [5, 6, 7, 8];
+
+        let res =  Utils::hex_formatted_hit_bytes(Some(&ipv4_src), Some(&ipv4_dst));
+        assert_eq!(
+            HeaplessStringTypes::U16(
+                String::from_str("0102:0304:0506:0708").unwrap()
+            ),
+            res.clone().unwrap()
+        );
+        println!("{:?}", if let Ok(HeaplessStringTypes::U16(val)) = res {
+            val.as_str().len()
+        } else { unimplemented!()});
     }
 }

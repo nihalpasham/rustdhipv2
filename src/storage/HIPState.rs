@@ -469,7 +469,10 @@ impl<'a, Q> Storage<'a, Q> {
     pub fn add_new_key(&mut self, key: String<U80>, val: Q) -> Result<Option<Q>> {
         let status = match self.store.map_store.insert(HeaplessString { s: key }, val) {
             Ok(val) => match val {
-                None => {hip_debug!("(key, value) pair inserted"); val},
+                None => {
+                    hip_debug!("(key, value) pair inserted");
+                    val
+                }
                 _ => unreachable!(),
             },
             Err(e) => return Err(HIPError::MapInsertionOpFailed),
@@ -538,8 +541,8 @@ pub struct StateVariables {
 	state: State,
 	rhit: [u8; 16],
 	ihit: [u8; 16],
-	src:  [u8; 16],
-	dst:  [u8; 16],
+	src:  [u8; 4],
+	dst:  [u8; 4],
 	// timer: Instant,
 	update_timeout: Instant,
 	pub i1_timeout: Instant,

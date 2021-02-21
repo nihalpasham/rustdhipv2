@@ -16,6 +16,14 @@ pub enum AESKeys {
 }
 
 #[derive(Debug, Copy, Clone)]
+pub enum SAData {
+    Typev4([u8; 4]),
+    Typev6([u8; 16]),
+    Default,
+}
+
+
+#[derive(Debug, Copy, Clone)]
 pub struct SecurityAssociationRecord {
     seq: u32,
     spi: Option<u32>,
@@ -23,8 +31,8 @@ pub struct SecurityAssociationRecord {
     hmac_key: [u8; 32],
     aes_alg: CipherTypes,
     hmac_alg: HMACTypes,
-    src: [u8; 16],
-    dst: [u8; 16],
+    src: SAData,
+    dst: SAData,
 }
 
 impl SecurityAssociationRecord {
@@ -33,8 +41,8 @@ impl SecurityAssociationRecord {
         hmac_alg: u8,
         aes_key: &[u8],
         hmac_key: &[u8],
-        src: [u8; 16],
-        dst: [u8; 16],
+        src: SAData,
+        dst: SAData,
     ) -> Self {
         let aeskey_len = aes_key.len();
         let mut aes_128 = [0; 16];
@@ -105,11 +113,11 @@ impl SecurityAssociationRecord {
         self.hmac_key
     }
 
-    pub fn get_src(&self) -> [u8; 16] {
+    pub fn get_src(&self) -> SAData {
         self.src
     }
 
-    pub fn get_dst(&self) -> [u8; 16] {
+    pub fn get_dst(&self) -> SAData {
         self.dst
     }
 }

@@ -164,7 +164,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> HIPPacket<&'a T> {
         while has_more_params {
             let param_type = NetworkEndian::read_u16(&data[offset..offset + 2]);
             let param_len = NetworkEndian::read_u16(&data[offset + 2..offset + 4]);
-            let total_param_len = 11 + param_len - (param_len - 3) % 8;
+            let total_param_len = 11 + param_len - (param_len + 3) % 8;
 
             let param_data = &data[offset..offset + total_param_len as usize];
             match param_type as usize {
@@ -396,8 +396,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> I1Packet<T> {
         let param_as_slice = param.into_inner();
         let data = self.packet.buffer.as_mut();
 
-        data[header_len as usize..header_len as usize + param_len]
-            .copy_from_slice(param_as_slice);
+        data[header_len as usize..header_len as usize + param_len].copy_from_slice(param_as_slice);
         let new_len = header_len as usize + param_len;
         self.packet.set_header_length((new_len as u8 - 8) / 8);
     }

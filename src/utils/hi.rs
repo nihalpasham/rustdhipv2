@@ -20,10 +20,10 @@ pub enum HostIdTypes {
 impl<'a> HostIdTypes {
     pub fn as_bytes(&self) -> &'_ [u8] {
         match self {
-            HostIdTypes::ECDSAId256(val) => {val},
-            HostIdTypes::ECDSAId384(val) => {val},
-            HostIdTypes::ECDSAId160(val) => {val},
-            HostIdTypes::__Nonexhaustive => {&[]}
+            HostIdTypes::ECDSAId256(val) => val,
+            HostIdTypes::ECDSAId384(val) => val,
+            HostIdTypes::ECDSAId160(val) => val,
+            HostIdTypes::__Nonexhaustive => &[],
         }
     }
 }

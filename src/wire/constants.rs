@@ -745,4 +745,10 @@ pub mod field {
     // IPv6 constants
     pub const IPV6_PROTOCOL: usize = 0x29;
     pub const IPV6_VERSION: usize = 0x6;
+
+    // IPv4 constants
+    pub const IPV4_DEFAULT_TTL: usize = 0x80;
+    pub const IPV4_IHL_NO_OPTIONS: usize = 0x5;
+    pub const IPV4_VERSION: usize = 0x4;
+
 }

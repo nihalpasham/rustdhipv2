@@ -171,6 +171,9 @@ pub const ECDH_NIST_256_PVT_KEY_SIZE: usize = 256 / 8;
 pub const ECDH_NIST_256_PUB_KEY_SIZE: usize = (256 / 8) * 2;
 pub const NIST_256_PUBKEY_X_LEN: usize = 0x20;
 pub const NIST_256_PUBKEY_Y_LEN: usize = 0x20;
-pub const ECDH_NIST_256_MODP: &str = "0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff";
-pub const ECDH_NIST_256_GROUP_ORDER: &str = "0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551";
-pub const ECDH_NIST_256_B_VAL: &str = "0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b";
+pub const ECDH_NIST_256_MODP: &str =
+    "0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff";
+pub const ECDH_NIST_256_GROUP_ORDER: &str =
+    "0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551";
+pub const ECDH_NIST_256_B_VAL: &str =
+    "0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b";
