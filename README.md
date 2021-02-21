@@ -2,16 +2,16 @@
 I've been evaluating `TLS replacements` for constrained/embedded systems for a while now. Embedded systems have fewer (yet precise) security requirements, owing to available resources and TLS is not exactly a good fit for a couple of reasons.
 
 ### Why not TLS:
-- Bloated with a plethora of extensions 
+- Bloated with a plethora of extensions, ciphersuites and options.
 - Mutual TLS authentication is NOT the default and a serious pain to get right. (especially in a constrained environment)
 - Its not exactly lightweight (even with TLS 1.3) when you begin to account for extensions. Ex: client-auth extension.
 - Certificate sizes.
 
-What's needed is a simpler, easy-to-use, lightweight secure channel. A secure channel with 2 pre-requisites. It must allow any 2 communicating parties the ability `to mutually authenticate each other coupled with end-end data encryption.`
+**What's needed:** - a simpler, easy-to-use, lightweight secure channel. A secure channel with just 2 pre-requisites. It must allow any 2 communicating parties the ability `to mutually authenticate each other and end-end data encryption.`
 
 More importantly, both pre-requisites must be the default and not tacked-on. 
 
-### HIPv2 is an IETF standard [[RFC7401](https://tools.ietf.org/html/rfc7401)] that offers
+### HIPv2 is an IETF standard *[[rfc7401](https://tools.ietf.org/html/rfc7401)]* that offers
 
 - Mutual authentication by default 
 	- HIPv2's central idea is - the creation and usage of unique, permanent, and cryptographically verifiable host/machine identities.
@@ -73,12 +73,15 @@ HIP assigns a permanent, location-independent name to a host. HIP names are cryp
 
 In HIP, when you call the OS's socket API, transport sockets (TCP/UDP) are bound to HITs rather than IP addresses. The networking stack translates the HITs to IP addresses before packet transmission on the wire. The reverse occurs on the host receiving HIP packets. When the host changes the network, the networking stack changes the IP address for the translation. The application doesn't notice the change because it is using the constant HIT. This is how HIP solves the problem of host mobility (which is a bonus if we were just looking for security).
 
-![Host Identity Protocol Overview](https://user-images.githubusercontent.com/20253082/107903532-864a4780-6f6f-11eb-8362-b5f816d86fd2.jpg)
-
+<p align="center">
+  <img width="500" height="300" src="https://user-images.githubusercontent.com/20253082/108634128-2dfad480-749e-11eb-83fc-24652311e409.png">
+</p>
 
 HIP is a two round-trip, end-to-end Diffie-Hellman key-exchange protocol, called base-exchange with mobility updates and some additional messages. The networking stack triggers the base exchange automatically when an application tries to connect to an HIT. 
 
-![HIP Base Exchange](https://user-images.githubusercontent.com/20253082/107903606-b42f8c00-6f6f-11eb-99a9-2ee7b70bb2ca.png)
+<p align="center">
+  <img width="500" height="400" src="https://user-images.githubusercontent.com/20253082/108632871-18ce7780-7497-11eb-937b-99c545d3c00e.png">
+</p>
 
 During a base exchange, a client (initiator) and a server (responder) authenticate each other with their public keys and generate symmetric encryption keys. The data flow between them is encrypted by IPsec Encapsulating Security Payload (ESP) with the symmetric key set up by HIP. HIP introduces mechanisms, such as cryptographic puzzles, that protect HIP responders (servers) against DoS attacks. The initiator must solve a computational puzzle. The responder selects the difficulty of the puzzle according to its load. When the responder is busy or under DoS attack, the responder can increase the puzzle difficulty level to delay new connections. Applications simply need to use HITs instead of IP addresses. Application source code does not need to be modified. 
  
@@ -105,6 +108,5 @@ We can describe this process as follows:
 
 We can now design networks where devices talk to each other without having to navigate the complex landscape of network security.
 
-- For example: A private non-routable IP within network A can talk to another non-routable IP within network B by authenticating each other with non-spoofable cryptographic machine identities (i.e. public keys or HITs).  
 - Note - Certifying public keys or otherwise creating trust relationships between hosts has explicitly been left out of the HIP architecture, it is expected that each system using HIP may want to address it differently. 
 
