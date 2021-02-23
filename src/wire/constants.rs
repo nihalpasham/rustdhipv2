@@ -42,8 +42,8 @@ pub mod field {
     pub const HIP_SENDERS_HIT: Field = 8..24;
     pub const HIP_RECIEVERS_HIT: Field = 24..40;
 
-    pub fn HIP_PARAMS(length: u8) -> Field {
-        HIP_RECIEVERS_HIT.end..(length as usize)
+    pub fn HIP_PARAMS(length: usize) -> Field {
+        HIP_RECIEVERS_HIT.end..(length)
     }
 
     pub const HIP_FIXED_HEADER_LENGTH_EXCL_8_BYTES: usize = 32;

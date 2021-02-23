@@ -18,9 +18,8 @@ use core::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HIPError {
     /// An operation is not permitted in the current state.
-    /// Ex: An HIP parameter instance such as `HostIDParameter` should not be
-    /// calling `DHGroupListParameter` methods.
-    Illegal,
+    /// i.e. an invalid HIP state was reached.
+    InvalidState,
     /// An operation cannot proceed because a buffer is empty or full.
     Exhausted,
     /// HIP has variable length parameters i.e. contents field length + padding
@@ -64,7 +63,7 @@ pub type Result<T> = core::result::Result<T, HIPError>;
 impl fmt::Display for HIPError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &HIPError::Illegal                  => write!(f, "Operation not permitted"),
+            &HIPError::InvalidState             => write!(f, "Invalid State, operation not permitted"),
             &HIPError::Exhausted                => write!(f, "Buffer is empty or full"),
             &HIPError::Bufferistooshort         => write!(f, "Buffer size is insufficent - too small"),
             &HIPError::IncorrectHeaderLength    => write!(f, "Malformed packet"),

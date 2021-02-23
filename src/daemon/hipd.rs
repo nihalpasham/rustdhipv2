@@ -133,25 +133,38 @@ impl<'a> HIPDaemon<'a> {
             hip_trace!("Only HIP version 2 is supported");
         }
 
-        // Check if the `responders HIT` equals our (i.e.initiator's) HIT or if its a
-        // null HIT.
+        // Check if the `responders HIT` is our hit or if its a null HIT.
         if !Utils::hits_equal(&rhit, &self.hit_as_bytes) && !Utils::hits_equal(&rhit, &[0; 16]) {
-            hip_trace!("We're good, Not our HIT");
-            hip_trace!("{:?}", Utils::hex_formatted_hit_bytes(None, Some(&rhit)));
-            hip_trace!(
-                "{:?}",
+            hip_debug!("Not our HIT");
+            hip_debug!(
+                "rhit: {:?}",
+                Utils::hex_formatted_hit_bytes(None, Some(&rhit))
+                    .unwrap()
+                    .as_str()
+            );
+            hip_debug!(
+                "own_hit: {:?}",
                 Utils::hex_formatted_hit_bytes(Some(&self.hit_as_bytes), None)
+                    .unwrap()
+                    .as_str()
             );
         }
 
         let original_checksum = hip_packet.get_checksum();
+
+        let mut rec_hip_packet = Vec::<u8, U1024>::from_slice(ipv4_packet.payload())
+            .map_err(|_| HIPError::Bufferistooshort)?;
+        rec_hip_packet[CHECKSUM.start] = 0;
+        rec_hip_packet[CHECKSUM.end - 1] = 0;
+        hip_debug!("{:?}", &rec_hip_packet[..].len());
+        hip_debug!("{:?}", &rec_hip_packet[..]);
         // hip_packet.set_checksum(0x0);
         let computed_checksum = Utils::hip_ipv4_checksum(
             &src.0,
             &dst.0,
             protocol,
-            (hip_packet.get_header_length() * 8 + 8) as u16,
-            ipv4_packet.payload(),
+            (1 + hip_packet.get_header_length() as u16) * 8,
+            &rec_hip_packet[..],
         );
         if original_checksum != computed_checksum {
             hip_trace!("Invalid checksum");
@@ -161,7 +174,9 @@ impl<'a> HIPDaemon<'a> {
             HIP_I1_PACKET => {
                 hip_debug!("Received I1 Packet");
 
-                if hip_state.ok_or_else(|| HIPError::Illegal)?.is_i1_sent()
+                if hip_state
+                    .ok_or_else(|| HIPError::InvalidState)?
+                    .is_i1_sent()
                     && Utils::is_hit_smaller(&rhit, &ihit)
                 {
                     hip_debug!("Staying in I1-SENT");
@@ -175,7 +190,7 @@ impl<'a> HIPDaemon<'a> {
                         StateVariables::new(
                             hip_state
                                 .map(|state| state.get_state())
-                                .ok_or_else(|| HIPError::Illegal)?,
+                                .ok_or_else(|| HIPError::InvalidState)?,
                             &ihit,
                             &rhit,
                             &src.0,
@@ -190,7 +205,7 @@ impl<'a> HIPDaemon<'a> {
                         StateVariables::new(
                             hip_state
                                 .map(|state| state.get_state())
-                                .ok_or_else(|| HIPError::Illegal)?,
+                                .ok_or_else(|| HIPError::InvalidState)?,
                             &ihit,
                             &rhit,
                             &src.0,
@@ -257,10 +272,12 @@ impl<'a> HIPDaemon<'a> {
                     if let HIPParamsTypes::DHGroupListParam(val) = *param {
                         rec_dh_grouplist = Some(val);
                     } else {
-                        hip_debug!("DH groups parameter NOT found. Dropping I1 packet");
-                        rec_dh_grouplist = None;
                     }
                 });
+
+                if rec_dh_grouplist.is_none() {
+                    hip_debug!("DH groups parameter NOT found. Dropping I1 packet");
+                }
 
                 let dhlist_param = rec_dh_grouplist.ok_or_else(|| HIPError::FieldisNOTSet)?;
                 let advertised_dh_groups = dhlist_param.get_groups()?; // supposed to be ordered by initiator's preference
@@ -341,7 +358,7 @@ impl<'a> HIPDaemon<'a> {
                         dh_param256
                             .set_group_id(selected_dh_group.ok_or_else(|| HIPError::Unrecognized)?);
                         dh_param256.set_public_value_length(0x40); // pubkey len for ECDH256
-                        dh_param256.set_public_value(&pk256.unwrap().to_bytes());
+                        dh_param256.set_public_value(&pk256.unwrap().to_bytes()[1..])?;
                         (
                             HIPParamsTypes::DHParam(dh_param256),
                             HIPParamsTypes::Default,
@@ -355,7 +372,7 @@ impl<'a> HIPDaemon<'a> {
                         dh_param384
                             .set_group_id(selected_dh_group.ok_or_else(|| HIPError::Unrecognized)?);
                         dh_param384.set_public_value_length(0x60); // pubkey len for ECDH384
-                        dh_param384.set_public_value(&pk384.unwrap().to_bytes());
+                        dh_param384.set_public_value(&pk384.unwrap().to_bytes()[1..])?;
                         (
                             HIPParamsTypes::Default,
                             HIPParamsTypes::DHParam(dh_param384),
@@ -409,12 +426,17 @@ impl<'a> HIPDaemon<'a> {
                 let signer_tuple = match self.privkey {
                     Some(val) if val.len() == 0x20 => {
                         let mut signature_param = SignatureParameter::new_checked([0; 72])?;
-                        let signer = ECDSASHA256Signature([0; 32], [0; 64]);
+                        signature_param.init_signatureparameter();
+                        let signer = ECDSASHA256Signature(val.try_into().unwrap(), [0; 64]);
                         (Some((signature_param, signer)), None)
                     }
                     Some(val) if val.len() == 0x30 => {
                         let mut signature_param = SignatureParameter::new_checked([0; 104])?;
-                        let signer = ECDSASHA384Signature([0; 48], EncodedPointP384::identity());
+                        signature_param.init_signatureparameter();
+                        let signer = ECDSASHA384Signature(
+                            val.try_into().unwrap(),
+                            EncodedPointP384::identity(),
+                        );
                         (None, Some((signature_param, signer)))
                     }
                     Some(_) => unimplemented!(),
@@ -520,21 +542,31 @@ impl<'a> HIPDaemon<'a> {
                     .set_header_length(HIP_DEFAULT_PACKET_LENGTH as u8);
 
                 // set puzzle parameter fields irandom and opaque
-                match puzzle_param {
+                // cant mutate `enum variants in place`. So, pattern match and assign the mutated `puzzle_param` to a new variable
+                // This is something I need to check on - can associated data of `enum variants` be mutated in place.
+                let puzzle_param = match puzzle_param {
                     (HIPParamsTypes::PuzzleParam(mut puzzle_256), HIPParamsTypes::Default) => {
                         let irandom = getrandom::<32>([12; 32]);
                         let opaque = getrandom::<2>([10; 32]);
                         puzzle_256.set_random(&irandom, 0x20);
                         puzzle_256.set_opaque(u16::from_be_bytes(opaque));
+                        (
+                            HIPParamsTypes::PuzzleParam(puzzle_256),
+                            HIPParamsTypes::Default,
+                        )
                     }
                     (HIPParamsTypes::Default, HIPParamsTypes::PuzzleParam(mut puzzle_384)) => {
                         let irandom = getrandom::<48>([12; 32]);
                         let opaque = getrandom::<2>([10; 32]);
                         puzzle_384.set_random(&irandom, 0x30);
                         puzzle_384.set_opaque(u16::from_be_bytes(opaque));
+                        (
+                            HIPParamsTypes::Default,
+                            HIPParamsTypes::PuzzleParam(puzzle_384),
+                        )
                     }
                     (_, _) => unreachable!(),
-                }
+                };
 
                 #[rustfmt::skip]
                 // Add R1 parameters. List of mandatory parameters in an R1 packet
@@ -577,9 +609,9 @@ impl<'a> HIPDaemon<'a> {
                 // Swap src & dst IPv6 addresses
                 core::mem::swap(&mut src, &mut dst);
 
-                // Construct IPv6 packet
-                let ipv4_payload_len = (hip_r1_packet.packet.get_header_length() * 8 + 8) as u16;
-                let ipv4_fixed_header_len = 0x28u8;
+                // Construct IPv4 packet
+                let ipv4_payload_len = (1 + hip_r1_packet.packet.get_header_length() as u16) * 8;
+                let ipv4_fixed_header_len = 0x14u8;
                 let mut ipv4_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
                 let mut ipv4_packet = Ipv4Packet::new_checked(
                     &mut ipv4_buffer[..ipv4_fixed_header_len as usize + ipv4_payload_len as usize],
@@ -633,17 +665,24 @@ impl<'a> HIPDaemon<'a> {
                 hip_debug!("Received R1 packet");
 
                 if hip_state
-                    .ok_or_else(|| HIPError::Illegal)?
+                    .ok_or_else(|| HIPError::InvalidState)?
                     .is_unassociated()
-                    || hip_state.ok_or_else(|| HIPError::Illegal)?.is_r2_sent()
-                    || hip_state.ok_or_else(|| HIPError::Illegal)?.is_established()
+                    || hip_state
+                        .ok_or_else(|| HIPError::InvalidState)?
+                        .is_r2_sent()
+                    || hip_state
+                        .ok_or_else(|| HIPError::InvalidState)?
+                        .is_established()
                 {
-                    hip_debug!("Not expecting an R1 packet. Dropping packet...");
+                    hip_debug!(
+                        "Not expecting an R1 packet. Dropping packet... {:?}",
+                        hip_state
+                    );
                 }
 
                 let oga_id = HIT::get_responders_oga_id(&rhit);
-
-                match oga_id {
+                let oga = oga_id << 4;
+                match oga {
                     0x10 | 0x20 | 0x30 => {}
                     _ => {
                         hip_debug!("Unsupported HIT suit");
@@ -681,8 +720,8 @@ impl<'a> HIPDaemon<'a> {
 
                 let rhash = HIT::get_responders_hash_alg(&ihit);
                 let rhash_len = match &rhash {
-                    DigestTypes::SHA256(h) => SHA256Digest::get_length(),
-                    DigestTypes::SHA384(h) => SHA384Digest::get_length(),
+                    DigestTypes::SHA256(_) => SHA256Digest::get_length(),
+                    DigestTypes::SHA384(_) => SHA384Digest::get_length(),
                     _ => return Err(HIPError::__Nonexhaustive),
                 };
 
@@ -725,7 +764,7 @@ impl<'a> HIPDaemon<'a> {
                             };
                             match hi[0..2] {
                                 [0, 1] => {
-                                    let responders_hit = HIT::compute_hit::<80>(hi, oga);
+                                    let responders_hit = HIT::compute_hit::<82>(hi, oga);
                                     hip_debug!("Responder's HIT: {:?}", responders_hit);
                                     hip_debug!("Initiator's HIT: {:?}", &ihit);
                                     hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
@@ -885,7 +924,7 @@ impl<'a> HIPDaemon<'a> {
                 let elapsed_time = timer.get_elapsed_time().ok_or_else(|| HIPError::TimeOut)?;
                 if elapsed_time > timer.duration {
                     hip_debug!("Maximum time to solve the puzzle exceeded. Dropping the packet...");
-                    hip_state.map(|state| state.unassociated());
+                    hip_state = hip_state.map(|state| state.unassociated());
                 }
 
                 // Echo Response Signed Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
@@ -1256,6 +1295,7 @@ impl<'a> HIPDaemon<'a> {
                 // HIP Solution Parameter
                 let mut solution_param =
                     SolutionParameter::new_checked([0; HIP_SOLUTION_J_OFFSET.end])?;
+                solution_param.init_solution_param();
                 solution_param.set_k_value(
                     puzzle_param
                         .ok_or_else(|| HIPError::FieldisNOTSet)?
@@ -1849,7 +1889,7 @@ impl<'a> HIPDaemon<'a> {
                 core::mem::swap(&mut src, &mut dst);
 
                 // Construct IPv4 packet
-                let ipv4_payload_len = (hip_i2_packet.packet.get_header_length() * 8 + 8) as u16;
+                let ipv4_payload_len = (1 + hip_i2_packet.packet.get_header_length() as u16 * 8);
                 let ipv4_fixed_header_len = 0x14u8;
                 let mut ipv4_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
                 let mut ipv4_packet = Ipv4Packet::new_checked(
@@ -1942,7 +1982,7 @@ impl<'a> HIPDaemon<'a> {
                         .ok_or_else(|| HIPError::FieldisNOTSet)?
                         .is_closed()
                 {
-                    hip_state.map(|s| s.i2_sent());
+                    hip_state = hip_state.map(|s| s.i2_sent());
                 }
             }
 
@@ -2862,7 +2902,7 @@ impl<'a> HIPDaemon<'a> {
                         .ok_or_else(|| HIPError::__Nonexhaustive)?
                         .is_closed()
                 {
-                    hip_state.map(|s| s.r2_sent());
+                    hip_state = hip_state.map(|s| s.r2_sent());
                     if let HeaplessStringTypes::U32(val) = dst_str {
                         hip_debug!(
                             "Sending R2 packet to {:?}, bytes sent {:?}",
@@ -3234,7 +3274,7 @@ impl<'a> HIPDaemon<'a> {
 
                 let (cipher, hmac) = ESPTransformFactory::get(
                     self.selected_esp_transform
-                        .ok_or_else(|| HIPError::Illegal)?,
+                        .ok_or_else(|| HIPError::InvalidState)?,
                 );
 
                 // Create a new SA record and save it to out sa_map
@@ -3344,7 +3384,7 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 // Transition to an Established state
-                hip_state.map(|state| state.established());
+                hip_state = hip_state.map(|state| state.established());
 
                 if is_hit_smaller {
                     let sv = self.state_vars_map.get_mut(&rhit, &ihit)?;
@@ -3387,13 +3427,15 @@ impl<'a> HIPDaemon<'a> {
 
         // Get the key from the `hip_state_machine` and if it doesn't exist, add one.
         if is_hit_smaller {
-            self.hip_state_machine
-                .get(&rhit, &ihit)?
-                .and_then(|state| Some(hip_state = Some(*state)));
+            self.hip_state_machine.get(&rhit, &ihit)?.and_then(|state| {
+                hip_state = Some(*state);
+                hip_state
+            });
         } else {
-            self.hip_state_machine
-                .get(&ihit, &rhit)?
-                .and_then(|state| Some(hip_state = Some(*state)));
+            self.hip_state_machine.get(&ihit, &rhit)?.and_then(|state| {
+                hip_state = Some(*state);
+                hip_state
+            });
         }
 
         if hip_state
@@ -3414,19 +3456,19 @@ impl<'a> HIPDaemon<'a> {
             // i.e. we're only interested in 3 groups ECDHNIST384 (0x8), ECDHNIST256 (0x7), ECDHSECP160R1 (0xa)
             let mut dhgroups_param = DHGroupListParameter::new_checked([0; 16])?;
             dhgroups_param.init_dhgrouplist_param();
-            dhgroups_param.set_groups(&[0x00, 0x8, 0x00, 0x7, 0x00, 0xa]);
+            dhgroups_param.set_groups(&[0x00, 0x7, 0x00, 0x8, 0x00, 0xa]);
 
             // Construct a new I1 Packet
             let mut hip_i1_packet = I1Packet::<[u8; 80]>::new_i1packet()?;
-            hip_i1_packet.packet.set_senders_hit(&rhit);
-            hip_i1_packet.packet.set_receivers_hit(&ihit);
+            hip_i1_packet.packet.set_senders_hit(&ihit);
+            hip_i1_packet.packet.set_receivers_hit(&rhit);
             hip_i1_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
             hip_i1_packet.packet.set_version(HIP_VERSION as u8);
             hip_i1_packet.add_param(HIPParamsTypes::DHGroupListParam(
                 DHGroupListParameter::fromtype(&dhgroups_param)?,
             ));
 
-            let hip_pkt_size = (hip_i1_packet.packet.get_header_length() * 8 + 8) as u16;
+            let hip_pkt_size = (1 + hip_i1_packet.packet.get_header_length() as u16) * 8;
             let computed_checksum = Utils::hip_ipv4_checksum(
                 &src_ip,
                 &dst_ip,
@@ -3479,16 +3521,28 @@ impl<'a> HIPDaemon<'a> {
             }
 
             // Transition to an I1-Sent state
-            hip_state.map(|state| state.i1_sent());
+            hip_state = hip_state.map(|state| state.i1_sent());
 
             if is_hit_smaller {
+                // Update HIP StateMachine
+                let mut old_hip_state = self.hip_state_machine.get_mut(&rhit, &ihit)?;
+                match (&mut old_hip_state, hip_state) {
+                    (Some(old_state), Some(new_state)) => **old_state = new_state,
+                    (_, _) => {
+                        hip_debug!(
+                            "Invalid states reached, prev: {:?}, new: {:?}",
+                            old_hip_state,
+                            hip_state
+                        );
+                        return Err(HIPError::InvalidState);
+                    }
+                }
+                // Update State_Variables
                 self.state_vars_map.save(
                     &rhit,
                     &ihit,
                     StateVariables::new(
-                        hip_state
-                            .map(|state| state.get_state())
-                            .ok_or_else(|| HIPError::Illegal)?,
+                        hip_state.ok_or_else(|| HIPError::InvalidState)?,
                         &ihit,
                         &rhit,
                         &src_ip,
@@ -3506,13 +3560,23 @@ impl<'a> HIPDaemon<'a> {
                         }
                 });
             } else {
+                let mut old_hip_state = self.hip_state_machine.get_mut(&ihit, &rhit)?;
+                match (&mut old_hip_state, hip_state) {
+                    (Some(old_state), Some(new_state)) => **old_state = new_state,
+                    (_, _) => {
+                        hip_debug!(
+                            "Invalid states reached, prev: {:?}, new: {:?}",
+                            old_hip_state,
+                            hip_state
+                        );
+                        return Err(HIPError::InvalidState);
+                    }
+                }
                 self.state_vars_map.save(
                     &ihit,
                     &rhit,
                     StateVariables::new(
-                        hip_state
-                            .map(|state| state.get_state())
-                            .ok_or_else(|| HIPError::Illegal)?,
+                        hip_state.ok_or_else(|| HIPError::InvalidState)?,
                         &ihit,
                         &rhit,
                         &src_ip,

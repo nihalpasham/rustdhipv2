@@ -137,7 +137,12 @@ fn main() {
         {
             let mut socket = sockets.get::<RawSocket>(raw_handle);
             if socket.can_recv() {
-                hipd.process_hip_packet(socket);
+                match hipd.process_hip_packet(socket) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        debug!("HIP error: {}", e);
+                    }
+                }
             }
         }
         phy_wait(fd, iface.poll_delay(&sockets, timestamp)).expect("wait error");

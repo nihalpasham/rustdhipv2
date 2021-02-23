@@ -58,7 +58,7 @@ impl<T: AsRef<[u8]>> HIPPacket<T> {
         if len < field::HIP_RECIEVERS_HIT.end {
             Err(HIPError::Bufferistooshort)
         } else {
-            let header_len = ((1 + self.get_header_length()) * 8) as usize;
+            let header_len = ((1 + self.get_header_length() as usize) * 8);
             if len < header_len {
                 Err(HIPError::Bufferistooshort)
             } else if header_len != 8 && header_len < field::HIP_RECIEVERS_HIT.end {
@@ -134,7 +134,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> HIPPacket<&'a T> {
     /// Return a slice of bytes contaning all HIP parameters.
     #[inline]
     pub fn all_parameters(&self) -> &'a [u8] {
-        let header_len = self.get_header_length() * 8 + 8;
+        let header_len = (1 + self.get_header_length() as usize) * 8;
         let data = self.buffer.as_ref();
         &data[field::HIP_PARAMS(header_len)]
     }
@@ -150,11 +150,11 @@ impl<'a, T: AsRef<[u8]> + ?Sized> HIPPacket<&'a T> {
     pub fn get_parameters(&self) -> Option<[HIPParamsTypes<&[u8]>; 10]> {
         let mut offset = field::HIP_RECIEVERS_HIT.end;
         let mut has_more_params = false;
-        let len = self.get_header_length() * 8 + 8;
-        if len > field::HIP_FIXED_HEADER_LENGTH_EXCL_8_BYTES as u8 {
+        let len = (1 + self.get_header_length() as usize) * 8;
+        if len > field::HIP_FIXED_HEADER_LENGTH_EXCL_8_BYTES {
             has_more_params = true;
         };
-        if len != self.buffer.as_ref().len() as u8 {
+        if len != self.buffer.as_ref().len() {
             return None;
         };
 
@@ -279,7 +279,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> HIPPacket<&'a T> {
                         EchoResponseUnsignedParameter::new_checked(param_data).unwrap(),
                     )
                 }
-                _ => continue,
+                _ => {hip_debug!("Unknown parameter, param_type_id: {}", param_type)},
             }
             idx += 1;
             offset += total_param_len as usize;
@@ -391,14 +391,14 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> I1Packet<T> {
 
     /// A method to sequentially add HIP parameters to a HIP packet
     pub fn add_param(&mut self, param: HIPParamsTypes<&[u8]>) {
-        let header_len = self.packet.get_header_length() * 8 + 8;
+        let header_len = (1 + self.packet.get_header_length() as usize) * 8;
         let param_len = param.param_len();
-        let param_as_slice = param.into_inner();
+        let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
         data[header_len as usize..header_len as usize + param_len].copy_from_slice(param_as_slice);
         let new_len = header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8 - 8) / 8);
+        self.packet.set_header_length(((new_len - 8) / 8) as u8);
     }
 
     /// Returns a ref to the underlying buffer.
@@ -457,15 +457,15 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> R1Packet<T> {
 
     /// A method to sequentially add HIP parameters to a HIP packet
     pub fn add_param(&mut self, param: HIPParamsTypes<&[u8]>) {
-        let fixed_header_len = self.packet.get_header_length() * 8 + 8;
+        let header_len = (1 + self.packet.get_header_length() as usize) * 8;
         let param_len = param.param_len();
-        let param_as_slice = param.into_inner();
+        let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[fixed_header_len as usize..fixed_header_len as usize + param_len]
+        data[header_len as usize..header_len as usize + param_len]
             .copy_from_slice(param_as_slice);
-        let new_len = fixed_header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8) / 8);
+        let new_len = header_len as usize + param_len;
+        self.packet.set_header_length(((new_len - 8) / 8) as u8);
     }
 
     /// Returns a ref to the underlying buffer.
@@ -522,15 +522,15 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> I2Packet<T> {
 
     /// A method to sequentially add HIP parameters to a HIP packet
     pub fn add_param(&mut self, param: HIPParamsTypes<&[u8]>) {
-        let fixed_header_len = self.packet.get_header_length() * 8 + 8;
+        let header_len = (1 + self.packet.get_header_length() as usize) * 8;
         let param_len = param.param_len();
-        let param_as_slice = param.into_inner();
+        let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[fixed_header_len as usize..fixed_header_len as usize + param_len]
+        data[header_len as usize..header_len as usize + param_len]
             .copy_from_slice(param_as_slice);
-        let new_len = fixed_header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8) / 8);
+        let new_len = header_len as usize + param_len;
+        self.packet.set_header_length((new_len as u8 - 8) / 8);
     }
 
     /// Returns a ref to the underlying buffer.
@@ -578,15 +578,15 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> R2Packet<T> {
 
     /// A method to sequentially add HIP parameters to a HIP packet
     pub fn add_param(&mut self, param: HIPParamsTypes<&[u8]>) {
-        let fixed_header_len = self.packet.get_header_length() * 8 + 8;
+        let header_len = (1 + self.packet.get_header_length() as usize) * 8;
         let param_len = param.param_len();
-        let param_as_slice = param.into_inner();
+        let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[fixed_header_len as usize..fixed_header_len as usize + param_len]
+        data[header_len as usize..header_len as usize + param_len]
             .copy_from_slice(param_as_slice);
-        let new_len = fixed_header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8) / 8);
+        let new_len = header_len as usize + param_len;
+        self.packet.set_header_length((new_len as u8 - 8) / 8);
     }
 
     /// Returns a ref to the underlying buffer.
@@ -634,15 +634,15 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> UpdatePacket<T> {
 
     /// A method to sequentially add HIP parameters to a HIP packet
     pub fn add_param(&mut self, param: HIPParamsTypes<&[u8]>) {
-        let fixed_header_len = self.packet.get_header_length() * 8 + 8;
+        let header_len = (1 + self.packet.get_header_length() as usize) * 8;
         let param_len = param.param_len();
-        let param_as_slice = param.into_inner();
+        let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[fixed_header_len as usize..fixed_header_len as usize + param_len]
+        data[header_len as usize..header_len as usize + param_len]
             .copy_from_slice(param_as_slice);
-        let new_len = fixed_header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8) / 8);
+        let new_len = header_len as usize + param_len;
+        self.packet.set_header_length((new_len as u8 - 8) / 8);
     }
 }
 
@@ -683,15 +683,15 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NotifyPacket<T> {
 
     /// A method to sequentially add HIP parameters to a HIP packet
     pub fn add_param(&mut self, param: HIPParamsTypes<&[u8]>) {
-        let fixed_header_len = self.packet.get_header_length() * 8 + 8;
+        let header_len = (1 + self.packet.get_header_length() as usize) * 8;
         let param_len = param.param_len();
-        let param_as_slice = param.into_inner();
+        let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[fixed_header_len as usize..fixed_header_len as usize + param_len]
+        data[header_len as usize..header_len as usize + param_len]
             .copy_from_slice(param_as_slice);
-        let new_len = fixed_header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8) / 8);
+        let new_len = header_len as usize + param_len;
+        self.packet.set_header_length((new_len as u8 - 8) / 8);
     }
 }
 
@@ -722,15 +722,15 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ClosePacket<T> {
 
     /// A method to sequentially add HIP parameters to a HIP packet
     pub fn add_param(&mut self, param: HIPParamsTypes<&[u8]>) {
-        let fixed_header_len = self.packet.get_header_length() * 8 + 8;
+        let header_len = (1 + self.packet.get_header_length() as usize) * 8;
         let param_len = param.param_len();
-        let param_as_slice = param.into_inner();
+        let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[fixed_header_len as usize..fixed_header_len as usize + param_len]
+        data[header_len as usize..header_len as usize + param_len]
             .copy_from_slice(param_as_slice);
-        let new_len = fixed_header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8) / 8);
+        let new_len = header_len as usize + param_len;
+        self.packet.set_header_length((new_len as u8 - 8) / 8);
     }
 }
 
@@ -771,15 +771,15 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> CloseAckPacket<T> {
 
     /// A method to sequentially add HIP parameters to a HIP packet
     pub fn add_param(&mut self, param: HIPParamsTypes<&[u8]>) {
-        let fixed_header_len = self.packet.get_header_length() * 8 + 8;
+        let header_len = (1 + self.packet.get_header_length() as usize) * 8;
         let param_len = param.param_len();
-        let param_as_slice = param.into_inner();
+        let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[fixed_header_len as usize..fixed_header_len as usize + param_len]
+        data[header_len as usize..header_len as usize + param_len]
             .copy_from_slice(param_as_slice);
-        let new_len = fixed_header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8) / 8);
+        let new_len = header_len as usize + param_len;
+        self.packet.set_header_length((new_len as u8 - 8) / 8);
     }
 }
 
@@ -1501,17 +1501,17 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> DHParameter<T> {
     #[inline]
     pub fn set_public_value(&mut self, pub_val: &[u8]) -> Result<()> {
         if let Ok(public_value_length) = self.get_public_value_length() {
-            if public_value_length != 0x0 {
-                return Err(HIPError::Illegal);
+            if public_value_length == 0x0 {
+                return Err(HIPError::FieldisNOTSet);
             };
             let mut len = self.buffer.get_length();
             len += pub_val.len() as u16;
             self.buffer.set_length(len);
-            self.set_public_value_length(len as u16)?;
+            // self.set_public_value_length(pub_val.len() as u16)?;
             {
                 let data = self.buffer.buffer.as_mut();
                 data[field::HIP_PUBLIC_VALUE_OFFSET.start
-                    ..field::HIP_PUBLIC_VALUE_OFFSET.start + len as usize]
+                    ..field::HIP_PUBLIC_VALUE_OFFSET.start + public_value_length as usize]
                     .copy_from_slice(pub_val);
             }
             let pad_len: usize = (8 - (4 + len as usize) % 8) % 8; // pad_len is computed at runtime - i.e. non constant
@@ -1521,7 +1521,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> DHParameter<T> {
             let data = self.buffer.buffer.as_mut();
             Ok(data[pad_offset..pad_offset + pad_len].copy_from_slice(&padding[..pad_len]))
         } else {
-            Err(HIPError::Illegal)
+            Err(HIPError::Exhausted)
         }
     }
 }
@@ -1628,7 +1628,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> CipherParameter<T> {
         // there are no more than six (6) Cipher IDs in one HIP_CIPHER parameter. RFC
         // 7401 - 5.2.8
         if (ciphers.len() % 2 != 0) && (ciphers.len() <= 12) {
-            return Err(HIPError::Illegal);
+            return Err(HIPError::InvalidState);
         };
         self.buffer.set_length(ciphers.len() as u16);
         let mut counter = 0;
@@ -1706,7 +1706,7 @@ impl<T: AsRef<[u8]>> HostIdParameter<T> {
                 (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
             if len < param_len {
                 Err(HIPError::Bufferistooshort)
-            } else if param_len < field::HIP_ALGORITHM_OFFSET.end {
+            } else if param_len != 8 && param_len < field::HIP_ALGORITHM_OFFSET.end {
                 Err(HIPError::IncorrectHeaderLength)
             } else {
                 Ok(())
@@ -2086,7 +2086,7 @@ impl<T: AsMut<[u8]> + AsRef<[u8]>> TransportListParameter<T> {
         };
         // transport formats lists are 2 byte fields
         if formats.len() % 2 != 0 {
-            return Err(HIPError::Illegal);
+            return Err(HIPError::InvalidState);
         };
         self.buffer.set_length(formats.len() as u16);
         let mut counter = 0;
@@ -2702,7 +2702,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> AckParameter<T> {
         };
         // updates IDs are 4 byte fields
         if acks.len() % 4 != 0 {
-            return Err(HIPError::Illegal);
+            return Err(HIPError::InvalidState);
         };
         self.buffer.set_length(acks.len() as u16);
         let mut counter = 0;

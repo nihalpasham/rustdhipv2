@@ -51,8 +51,8 @@ This duality of the `IP address` is why we can't uniquely identify machines acro
 An IP address 
 
 - can be spoofed, 
-- it can be dynamic, 
-- it is not a reliable piece of identification. 
+- can be dynamic, 
+- is not a reliable piece of identification. 
 
 Yet every piece of networking equipment - from firewalls to access controllers to IoT devices, all rely on an `IP` for location and identification. 
 
@@ -77,7 +77,7 @@ In HIP, when you call the OS's socket API, transport sockets (TCP/UDP) are bound
   <img width="500" height="300" src="https://user-images.githubusercontent.com/20253082/108634128-2dfad480-749e-11eb-83fc-24652311e409.png">
 </p>
 
-HIP is a two round-trip, end-to-end Diffie-Hellman key-exchange protocol, called base-exchange with mobility updates and some additional messages. The networking stack triggers the base exchange automatically when an application tries to connect to an HIT. 
+HIP is a 2 round-trip, end-to-end Diffie-Hellman key-exchange protocol, called base-exchange with mobility updates and some additional messages. The networking stack triggers the base exchange automatically when an application tries to connect to an HIT. 
 
 <p align="center">
   <img width="500" height="400" src="https://user-images.githubusercontent.com/20253082/108632871-18ce7780-7497-11eb-937b-99c545d3c00e.png">

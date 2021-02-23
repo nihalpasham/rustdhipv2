@@ -27,18 +27,19 @@ pub enum State {
     EFailed,
 }
 
+#[rustfmt::skip]
 impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &State::Unassociated => write!(f, "UNASSOCIATED"),
-            &State::I1Sent => write!(f, "I1-SENT"),
-            &State::R1Sent => write!(f, "R1-SENT"),
-            &State::I2Sent => write!(f, "I2-SENT"),
-            &State::R2Sent => write!(f, "R2-SENT"),
-            &State::Established => write!(f, "ESTABLISHED"),
-            &State::Closing => write!(f, "CLOSING"),
-            &State::Closed => write!(f, "CLOSED"),
-            &State::EFailed => write!(f, "E-FAILED"),
+            &State::I1Sent       => write!(f, "I1-SENT"),
+            &State::R1Sent       => write!(f, "R1-SENT"),
+            &State::I2Sent       => write!(f, "I2-SENT"),
+            &State::R2Sent       => write!(f, "R2-SENT"),
+            &State::Established  => write!(f, "ESTABLISHED"),
+            &State::Closing      => write!(f, "CLOSING"),
+            &State::Closed       => write!(f, "CLOSED"),
+            &State::EFailed      => write!(f, "E-FAILED"),
         }
     }
 }
@@ -60,63 +61,71 @@ impl State {
         self == &State::Unassociated
     }
 
-    pub fn unassociated(mut self) {
+    pub fn unassociated(mut self) -> Self {
         self = State::Unassociated;
+        self
     }
 
     pub fn is_i1_sent(&self) -> bool {
         self == &State::I1Sent
     }
 
-    pub fn i1_sent(mut self) {
+    pub fn i1_sent(mut self) -> Self {
         self = State::I1Sent;
-    }
+        self
+    }   
 
     pub fn is_i2_sent(&self) -> bool {
         self == &State::I2Sent
     }
 
-    pub fn i2_sent(mut self) {
+    pub fn i2_sent(mut self) -> Self {
         self = State::I2Sent;
+        self
     }
 
     pub fn is_r2_sent(&self) -> bool {
         self == &State::R2Sent
     }
 
-    pub fn r2_sent(mut self) {
+    pub fn r2_sent(mut self) -> Self {
         self = State::R2Sent;
+        self
     }
 
     pub fn is_established(&self) -> bool {
         self == &State::Established
     }
 
-    pub fn established(mut self) {
+    pub fn established(mut self) ->  Self {
         self = State::Established;
+        self
     }
     pub fn is_closing(&self) -> bool {
         self == &State::Closing
     }
 
-    pub fn closing(mut self) {
+    pub fn closing(mut self) -> Self {
         self = State::Closing;
+        self
     }
 
     pub fn is_closed(&self) -> bool {
         self == &State::Closed
     }
 
-    pub fn closed(mut self) {
+    pub fn closed(mut self) -> Self {
         self = State::Closed;
+        self
     }
 
     pub fn is_failed(&self) -> bool {
         self == &State::EFailed
     }
 
-    pub fn failed(mut self) {
+    pub fn failed(mut self) -> Self {
         self = State::EFailed;
+        self
     }
 
     pub fn get_state(&self) -> Self {
@@ -286,6 +295,37 @@ impl<'a> StateMachine<'a> {
         self.hip_states
             .map_store
             .insert(HeaplessString { s: key }, State::Unassociated);
+    }
+
+    /// Returns a result containing an optional `mutable ref` to the `state value` if the key exists, else
+    /// returns a `None`.
+    ///
+    /// The key is constructed by concatenating the raw `initiator and responder
+    /// hit` bytes and hex-formatting the concatenated byte-string.
+    ///
+    /// Note - `HeaplessString` is just a wrapper around an actual `heapless
+    /// String<>` type from the heapless crate.
+    pub fn get_mut(&mut self, ihit: &[u8], rhit: &[u8]) -> Result<Option<&mut State>> {
+        let key = match Utils::hex_formatted_hit_bytes(Some(ihit), Some(rhit)) {
+            Ok(v) => {
+                if let HeaplessStringTypes::U64(key) = v {
+                    key
+                } else {
+                    return Err(HIPError::__Nonexhaustive);
+                }
+            }
+            Err(e) => return Err(e),
+        };
+        if self
+            .hip_states
+            .map_store
+            .get_mut(&HeaplessString { s: key.clone() })
+            .is_none()
+        {
+            Ok(None)
+        } else {
+            Ok(self.hip_states.map_store.get_mut(&HeaplessString { s: key }))
+        }
     }
 }
 
