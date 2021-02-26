@@ -35,7 +35,7 @@ pub enum HIPError {
     /// was not set.
     FieldisAlreadySet,
     /// The value of a field in a param packet was not set
-    FieldisNOTSet,
+    FieldNotSet,
     /// Error while performing an EC Crypto operation
     ECCError,
     /// Invalid encoding
@@ -68,8 +68,8 @@ impl fmt::Display for HIPError {
             &HIPError::Bufferistooshort         => write!(f, "Buffer size is insufficent - too small"),
             &HIPError::IncorrectHeaderLength    => write!(f, "Malformed packet"),
             &HIPError::LengthNotMultiple8       => write!(f, "Length has to be multiple of 8"),
-            &HIPError::FieldisAlreadySet        => write!(f, "Value of the field was already set"),
-            &HIPError::FieldisNOTSet            => write!(f, "Value of the field is not set"),
+            &HIPError::FieldisAlreadySet        => write!(f, "The field was already set"),
+            &HIPError::FieldNotSet              => write!(f, "The field is not set"),
             &HIPError::ECCError                 => write!(f, "EC Crypto operation failed"),
             &HIPError::InvalidEncoding          => write!(f, "Invalid encoding"),
             &HIPError::SignatureError           => write!(f, "Signature Error"),

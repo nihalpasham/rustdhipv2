@@ -26,7 +26,7 @@ pub fn option_as_ref<'a, Q: 'a + ParamMarker<'a, T>, T: 'a + AsRef<[u8]>>(
     val: Option<&'a Q>,
 ) -> Result<&'a [u8]> {
     Ok(val
-        .ok_or_else(|| HIPError::FieldisNOTSet)?
+        .ok_or_else(|| HIPError::FieldNotSet)?
         .inner_ref()
         .as_ref())
 }
@@ -266,7 +266,7 @@ impl<'a> HIPDaemon<'a> {
                 dhgroups_param.init_dhgrouplist_param();
                 let params = hip_packet
                     .get_parameters()
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?;
+                    .ok_or_else(|| HIPError::FieldNotSet)?;
                 let mut rec_dh_grouplist = None;
                 params.iter().for_each(|param| {
                     if let HIPParamsTypes::DHGroupListParam(val) = *param {
@@ -279,7 +279,7 @@ impl<'a> HIPDaemon<'a> {
                     hip_debug!("DH groups parameter NOT found. Dropping I1 packet");
                 }
 
-                let dhlist_param = rec_dh_grouplist.ok_or_else(|| HIPError::FieldisNOTSet)?;
+                let dhlist_param = rec_dh_grouplist.ok_or_else(|| HIPError::FieldNotSet)?;
                 let advertised_dh_groups = dhlist_param.get_groups()?; // supposed to be ordered by initiator's preference
                 let supported_dh_groups = [0x7, 0x9, 0x8, 0x3, 0x4, 0xa];
                 let mut selected_dh_group = None;
@@ -357,8 +357,8 @@ impl<'a> HIPDaemon<'a> {
                         dh_param256.init_dhparameter_param();
                         dh_param256
                             .set_group_id(selected_dh_group.ok_or_else(|| HIPError::Unrecognized)?);
-                        dh_param256.set_public_value_length(0x40); // pubkey len for ECDH256
-                        dh_param256.set_public_value(&pk256.unwrap().to_bytes()[1..])?;
+                        dh_param256.set_public_value_length(0x40 + 1); // uncompressed pubkey len for ECDH256
+                        dh_param256.set_public_value(&pk256.unwrap().to_bytes()[..])?;
                         (
                             HIPParamsTypes::DHParam(dh_param256),
                             HIPParamsTypes::Default,
@@ -371,8 +371,8 @@ impl<'a> HIPDaemon<'a> {
                         dh_param384.init_dhparameter_param();
                         dh_param384
                             .set_group_id(selected_dh_group.ok_or_else(|| HIPError::Unrecognized)?);
-                        dh_param384.set_public_value_length(0x60); // pubkey len for ECDH384
-                        dh_param384.set_public_value(&pk384.unwrap().to_bytes()[1..])?;
+                        dh_param384.set_public_value_length(0x60 + 1); // uncompressed pubkey len for ECDH384
+                        dh_param384.set_public_value(&pk384.unwrap().to_bytes()[..])?;
                         (
                             HIPParamsTypes::Default,
                             HIPParamsTypes::DHParam(dh_param384),
@@ -425,14 +425,14 @@ impl<'a> HIPDaemon<'a> {
                 // Signature Parameter
                 let signer_tuple = match self.privkey {
                     Some(val) if val.len() == 0x20 => {
-                        let mut signature_param = SignatureParameter::new_checked([0; 72])?;
-                        signature_param.init_signatureparameter();
+                        let mut signature_param = Signature2Parameter::new_checked([0; 72])?;
+                        signature_param.init_signature2parameter_param();
                         let signer = ECDSASHA256Signature(val.try_into().unwrap(), [0; 64]);
                         (Some((signature_param, signer)), None)
                     }
                     Some(val) if val.len() == 0x30 => {
-                        let mut signature_param = SignatureParameter::new_checked([0; 104])?;
-                        signature_param.init_signatureparameter();
+                        let mut signature_param = Signature2Parameter::new_checked([0; 104])?;
+                        signature_param.init_signature2parameter_param();
                         let signer = ECDSASHA384Signature(
                             val.try_into().unwrap(),
                             EncodedPointP384::identity(),
@@ -455,7 +455,7 @@ impl<'a> HIPDaemon<'a> {
                             .inner_ref()
                             .as_ref()
                             .iter()
-                            .chain(dh_256.inner_ref().as_ref().iter())
+                            .chain(dh_256.as_bytes().iter())
                             .chain(cipher_param.inner_ref().as_ref().iter())
                             .chain(esp_transform_param.inner_ref().as_ref().iter())
                             .chain(hi_256.inner_ref().as_ref().iter())
@@ -499,7 +499,7 @@ impl<'a> HIPDaemon<'a> {
                 let data_tobe_signed: Result<Vec<u8, _>> = match buf {
                     Ok(val) => {
                         let current_r1pkt_len = hip_r1_packet.packet.get_header_length();
-                        let pkt_len = current_r1pkt_len as usize * 8 + &val.len();
+                        let pkt_len = 8 * (1 + current_r1pkt_len as usize) + &val.len();
                         hip_r1_packet.packet.set_header_length((pkt_len / 8) as u8);
                         let mut s: Vec<u8, U400> = Vec::new();
                         for byte in hip_r1_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
@@ -513,23 +513,26 @@ impl<'a> HIPDaemon<'a> {
                     Err(e) => unreachable!(),
                 };
 
+                hip_debug!("data_tobe_signed: {:?}", data_tobe_signed);
+
                 let signature_param = match signer_tuple {
                     (Some((mut signature_param, signer)), None) => {
                         let signature = signer.sign(&data_tobe_signed?[..]);
-                        signature_param.set_signature_algorithm(0x7);
-                        signature_param.set_signature(&signature?[..]);
+                        hip_debug!("computed_signature: {:?}", signature);
+                        signature_param.set_signature_algorithm_2(0x7);
+                        signature_param.set_signature_2(&signature?[..]);
                         (
-                            HIPParamsTypes::SignatureParam(signature_param),
+                            HIPParamsTypes::Signature2Param(signature_param),
                             HIPParamsTypes::Default,
                         )
                     }
                     (None, Some((mut signature_param, signer))) => {
                         let signature = signer.sign(&data_tobe_signed?[..]);
-                        signature_param.set_signature_algorithm(0x7);
-                        signature_param.set_signature(&signature?[..]);
+                        signature_param.set_signature_algorithm_2(0x7);
+                        signature_param.set_signature_2(&signature?[..]);
                         (
                             HIPParamsTypes::Default,
-                            HIPParamsTypes::SignatureParam(signature_param),
+                            HIPParamsTypes::Signature2Param(signature_param),
                         )
                     }
                     (_, _) => unimplemented!(),
@@ -575,7 +578,7 @@ impl<'a> HIPDaemon<'a> {
 						(HIPParamsTypes::PuzzleParam(puzzle_256), HIPParamsTypes::Default),
 						(HIPParamsTypes::DHParam(dh_256), HIPParamsTypes::Default),
 						(HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default),
-						(HIPParamsTypes::SignatureParam(sign_param_256), HIPParamsTypes::Default),
+						(HIPParamsTypes::Signature2Param(sign_param_256), HIPParamsTypes::Default),
 					) => {
 						hip_r1_packet.add_param(HIPParamsTypes::PuzzleParam(PuzzleParameter::fromtype(&puzzle_256)?));
 						hip_r1_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_256)?));
@@ -585,13 +588,13 @@ impl<'a> HIPDaemon<'a> {
 						hip_r1_packet.add_param(HIPParamsTypes::HITSuitListParam(HITSuitListParameter::fromtype(&hit_suitlist_param)?));
 						hip_r1_packet.add_param(HIPParamsTypes::DHGroupListParam(DHGroupListParameter::fromtype(&dhgroups_param)?));
 						hip_r1_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
-						hip_r1_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_256)?));
+						hip_r1_packet.add_param(HIPParamsTypes::Signature2Param(Signature2Parameter::fromtype(&sign_param_256)?));
 					}
 					(
 						(HIPParamsTypes::Default, HIPParamsTypes::PuzzleParam(puzzle_384)),
 						(HIPParamsTypes::Default, HIPParamsTypes::DHParam(dh_384)),
 						(HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384)),
-						(HIPParamsTypes::Default, HIPParamsTypes::SignatureParam(sign_param_384)),
+						(HIPParamsTypes::Default, HIPParamsTypes::Signature2Param(sign_param_384)),
 					) => {
 						hip_r1_packet.add_param(HIPParamsTypes::PuzzleParam(PuzzleParameter::fromtype(&puzzle_384)?));
 						hip_r1_packet.add_param(HIPParamsTypes::DHParam(DHParameter::fromtype(&dh_384)?));
@@ -601,7 +604,7 @@ impl<'a> HIPDaemon<'a> {
 						hip_r1_packet.add_param(HIPParamsTypes::HITSuitListParam(HITSuitListParameter::fromtype(&hit_suitlist_param)?));
 						hip_r1_packet.add_param(HIPParamsTypes::DHGroupListParam(DHGroupListParameter::fromtype(&dhgroups_param)?));
 						hip_r1_packet.add_param(HIPParamsTypes::TransportListParam(TransportListParameter::fromtype(&transfmt_param)?));
-						hip_r1_packet.add_param(HIPParamsTypes::SignatureParam(SignatureParameter::fromtype(&sign_param_384)?));
+						hip_r1_packet.add_param(HIPParamsTypes::Signature2Param(Signature2Parameter::fromtype(&sign_param_384)?));
 					}
 					_ => unimplemented!(),
 				}
@@ -692,6 +695,7 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 let mut puzzle_param = None;
+                let mut copy_of_puzzle_param = None;
                 let mut r1_counter_param = None;
                 let mut irandom = None;
                 let mut opaque = None;
@@ -714,7 +718,9 @@ impl<'a> HIPDaemon<'a> {
                 hip_r1_packet
                     .packet
                     .set_senders_hit(&hip_packet.get_senders_hit());
-                // hip_r1_packet.packet.set_receivers_hit(&ihit);
+                hip_r1_packet
+                    .packet
+                    .set_receivers_hit(&hip_packet.get_receivers_hit());
                 hip_r1_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
                 hip_r1_packet.packet.set_version(HIP_VERSION as u8);
 
@@ -725,7 +731,7 @@ impl<'a> HIPDaemon<'a> {
                     _ => return Err(HIPError::__Nonexhaustive),
                 };
 
-                let param_list = parameters.ok_or_else(|| HIPError::FieldisNOTSet)?;
+                let param_list = parameters.ok_or_else(|| HIPError::FieldNotSet)?;
                 param_list.iter().for_each(|param| match param {
                     HIPParamsTypes::DHGroupListParam(val) => {
                         hip_debug!("DH groups parameter");
@@ -740,6 +746,13 @@ impl<'a> HIPDaemon<'a> {
                         puzzle_param = Some(val);
                         irandom = puzzle_param.map(|param| param.get_random(rhash_len));
                         opaque = puzzle_param.map(|param| param.get_opaque());
+
+                        // get a copy of puzzle param
+                        let mut param = Vec::<u8, U128>::from_slice(val.inner_ref().as_ref())
+                            .map_err(|_| HIPError::Bufferistooshort)
+                            .expect("puzzle parameter not set");
+                        // param.resize(len, 0u8);
+                        copy_of_puzzle_param = Some(param);
                     }
                     HIPParamsTypes::DHParam(val) => {
                         hip_debug!("DH parameter");
@@ -765,9 +778,9 @@ impl<'a> HIPDaemon<'a> {
                             match hi[0..2] {
                                 [0, 1] => {
                                     let responders_hit = HIT::compute_hit::<82>(hi, oga);
-                                    hip_debug!("Responder's HIT: {:?}", responders_hit);
-                                    hip_debug!("Initiator's HIT: {:?}", &ihit);
-                                    hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
+                                    hip_debug!("Responder's computed HIT: {:?}", responders_hit);
+                                    hip_debug!("Responder's actual HIT: {:?}", &ihit);
+                                    hip_debug!("own HIT: {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &responders_hit) {
                                         hip_trace!("Invalid HIT");
                                         panic!(
@@ -777,10 +790,10 @@ impl<'a> HIPDaemon<'a> {
                                     }
                                 }
                                 [0, 2] => {
-                                    let responders_hit = HIT::compute_hit::<112>(hi, oga);
-                                    hip_debug!("Responder's HIT: {:?}", responders_hit);
-                                    hip_debug!("Initiator's HIT: {:?}", &ihit);
-                                    hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
+                                    let responders_hit = HIT::compute_hit::<114>(hi, oga);
+                                    hip_debug!("Responder's computed HIT: {:?}", responders_hit);
+                                    hip_debug!("Responder's actual HIT: {:?}", &ihit);
+                                    hip_debug!("own HIT: {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &responders_hit) {
                                         hip_trace!("Invalid HIT");
                                         panic!(
@@ -798,12 +811,13 @@ impl<'a> HIPDaemon<'a> {
                                     responder_pubkey256 = Some(
                                         hi[2..].try_into().map_err(|_| HIPError::IncorrectLength),
                                     );
-                                    // responder_pubkey256 = Err(HIP);
+                                    responder_pubkey384 = None;
                                 }
                                 [0, 2] => {
                                     responder_pubkey384 = Some(
                                         hi[2..].try_into().map_err(|_| HIPError::IncorrectLength),
                                     );
+                                    responder_pubkey256 = None;
                                 }
                                 _ => unimplemented!(),
                             }
@@ -898,7 +912,7 @@ impl<'a> HIPDaemon<'a> {
                 let mut timer = Timer::new(Duration {
                     millis: (2
                         << (puzzle_param
-                            .ok_or_else(|| HIPError::FieldisNOTSet)?
+                            .ok_or_else(|| HIPError::FieldNotSet)?
                             .get_lifetime()?
                             - 32))
                         * 1000,
@@ -932,8 +946,7 @@ impl<'a> HIPDaemon<'a> {
                 echo_signed.init_echoresponse_signed_param();
                 if echo_request_signed_opaque_data.is_some() {
                     echo_signed.set_opaque_data(
-                        echo_request_signed_opaque_data
-                            .ok_or_else(|| HIPError::FieldisNOTSet)??,
+                        echo_request_signed_opaque_data.ok_or_else(|| HIPError::FieldNotSet)??,
                     );
                 }
                 // Echo Response Unsigned Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
@@ -942,23 +955,45 @@ impl<'a> HIPDaemon<'a> {
                 if echo_request_unisgned_opaque_data.is_some() {
                     echo_unsigned.set_opaque_data(
                         echo_request_unisgned_opaque_data
-                            .ok_or_else(|| HIPError::FieldisNOTSet)??,
+                            .ok_or_else(|| HIPError::FieldNotSet)??,
                     );
                 }
+
+                // Reset puzzle_param fields before verifying the signature. We create a copy as
+                // the original value is a `PuzzleParameter<&[u8]>` and not a `PuzzleParameter<&mut [u8]>`
+                // We cannot be mutate a buffer behind a reference. Note this is a design contract of this library.
+                // (not a limitation)
+                let mut temp = &mut copy_of_puzzle_param.ok_or_else(|| HIPError::Exhausted)?[..];
+                let mut reset_puzzle_param = PuzzleParameter::new_checked(temp)?;
+                match rhash_len {
+                    0x20 => {
+                        reset_puzzle_param.set_random(&[0; 0x20], rhash_len);
+                        reset_puzzle_param.set_opaque(0u16);
+                        reset_puzzle_param.set_length(0u16);
+                    }
+                    0x30 => {
+                        reset_puzzle_param.set_random(&[0; 0x30], rhash_len);
+                        reset_puzzle_param.set_opaque(0u8 as u16);
+                        reset_puzzle_param.set_length(0u16);
+                    }
+                    _ => unimplemented!(),
+                };
+                let new_puzzle_param = Some(&reset_puzzle_param);
 
                 let mut param_buf: Vec<u8, U512> = Vec::new();
                 #[rustfmt::skip]
                 match (r1_counter_param, echo_request_signed_opaque_data) {
                     (Some(r1), Some(echo_req)) => {  //                      
                         for byte in r1.inner_ref().as_ref().iter()
-                            .chain(puzzle_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(cipher_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(esp_transform_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(hi_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(hit_suit_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(dh_groups_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
+                            .chain(option_as_ref(new_puzzle_param)?.iter())
+                            .chain(option_as_ref(dh_param)?.iter())
+                            .chain(option_as_ref(cipher_param)?.iter())
+                            .chain(option_as_ref(esp_transform_param)?.iter())
+                            .chain(option_as_ref(hi_param)?.iter())
+                            .chain(option_as_ref(hit_suit_param)?.iter())
+                            .chain(option_as_ref(dh_groups_param)?.iter())
                             .chain(echo_signed.inner_ref().as_ref().iter())
-                            .chain(transport_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter()) {
+                            .chain(option_as_ref(transport_param)?.iter()) {
 						  param_buf
 							.push(*byte)
 							.map_err(|_| HIPError::Bufferistooshort);
@@ -966,40 +1001,43 @@ impl<'a> HIPDaemon<'a> {
                     },
                     (Some(r1), None) => {
                         for byte in r1.inner_ref().as_ref().iter()
-                            .chain(puzzle_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(cipher_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(esp_transform_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(hi_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(hit_suit_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(dh_groups_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(transport_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter()) {
+                            .chain(option_as_ref(new_puzzle_param)?.iter())
+                            .chain(option_as_ref(dh_param)?.iter())
+                            .chain(option_as_ref(cipher_param)?.iter())
+                            .chain(option_as_ref(esp_transform_param)?.iter())
+                            .chain(option_as_ref(hi_param)?.iter())
+                            .chain(option_as_ref(hit_suit_param)?.iter())
+                            .chain(option_as_ref(dh_groups_param)?.iter())
+                            .chain(option_as_ref(transport_param)?.iter()) {
 						  param_buf
 							.push(*byte)
 							.map_err(|_| HIPError::Bufferistooshort);
 						}
                     },
                     (None, Some(echo_req)) => { //
-                        for byte in puzzle_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter()
-                            .chain(cipher_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(esp_transform_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(hi_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(hit_suit_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(dh_groups_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
+                        for byte in option_as_ref(new_puzzle_param)?.iter()
+                            .chain(option_as_ref(dh_param)?.iter())
+                            .chain(option_as_ref(cipher_param)?.iter())
+                            .chain(option_as_ref(esp_transform_param)?.iter())
+                            .chain(option_as_ref(hi_param)?.iter())
+                            .chain(option_as_ref(hit_suit_param)?.iter())
+                            .chain(option_as_ref(dh_groups_param)?.iter())
                             .chain(echo_signed.inner_ref().as_ref().iter())
-                            .chain(transport_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter()) {
+                            .chain(option_as_ref(transport_param)?.iter()) {
 						  param_buf
 							.push(*byte)
 							.map_err(|_| HIPError::Bufferistooshort);
 						}
                     },
                     (None, None) => {
-                        for byte in puzzle_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter()
-                            .chain(cipher_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(esp_transform_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(hi_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(hit_suit_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(dh_groups_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter())
-                            .chain(transport_param.ok_or_else(|| HIPError::FieldisNOTSet)?.inner_ref().as_ref().iter()) {
+                        for byte in option_as_ref(new_puzzle_param)?.iter()
+                            .chain(option_as_ref(dh_param)?.iter())
+                            .chain(option_as_ref(cipher_param)?.iter())
+                            .chain(option_as_ref(esp_transform_param)?.iter())
+                            .chain(option_as_ref(hi_param)?.iter())
+                            .chain(option_as_ref(hit_suit_param)?.iter())
+                            .chain(option_as_ref(dh_groups_param)?.iter())
+                            .chain(option_as_ref(transport_param)?.iter()) {
 						  param_buf
 							.push(*byte)
 							.map_err(|_| HIPError::Bufferistooshort);
@@ -1007,60 +1045,66 @@ impl<'a> HIPDaemon<'a> {
                     },
                 }
 
-                let current_r1pkt_len = hip_r1_packet.packet.get_header_length();
-                let pkt_len = current_r1pkt_len as usize * 8 + &param_buf.len();
-                hip_r1_packet.packet.set_header_length((pkt_len / 8) as u8);
-                let mut bytes_to_verify: Vec<u8, U512> = Vec::new();
-                for byte in hip_r1_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
-                    .iter()
-                    .chain(param_buf[..].iter())
                 {
-                    bytes_to_verify
-                        .push(*byte)
-                        .map_err(|_| HIPError::Bufferistooshort)?;
-                }
+                    let current_r1pkt_len = hip_r1_packet.packet.get_header_length();
+                    let pkt_len = 8 * (1 + current_r1pkt_len as usize) + &param_buf.len();
+                    hip_r1_packet.packet.set_header_length((pkt_len / 8) as u8);
+                    let mut bytes_to_verify: Vec<u8, U512> = Vec::new();
+                    for byte in hip_r1_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
+                        .iter()
+                        .chain(param_buf[..].iter())
+                    {
+                        bytes_to_verify
+                            .push(*byte)
+                            .map_err(|_| HIPError::Bufferistooshort)?;
+                    }
 
-                match (responder_pubkey256, responder_pubkey384) {
-                    (Some(val), None) => {
-                        if let Ok(pubkey_256) = val {
-                            let verifier = ECDSASHA256Signature([0; 32], pubkey_256);
-                            let verified = verifier.verify(
-                                &bytes_to_verify[..],
-                                signature_param
-                                    .ok_or_else(|| HIPError::SignatureError)?
-                                    .inner_ref()
-                                    .as_ref(),
-                            );
-                            if !verified? {
-                                hip_trace!("Invalid signature in R1 packet. Dropping the packet");
+                    hip_debug!("bytes_to_verify {:?}", bytes_to_verify);
+
+                    match (responder_pubkey256, responder_pubkey384) {
+                        (Some(val), None) => {
+                            if let Ok(pubkey_256) = val {
+                                let verifier = ECDSASHA256Signature([0; 32], pubkey_256);
+                                let verified = verifier.verify(
+                                    &bytes_to_verify[..],
+                                    signature_param
+                                        .ok_or_else(|| HIPError::SignatureError)?
+                                        .get_signature_2()?,
+                                );
+                                if !verified? {
+                                    hip_trace!(
+                                        "Invalid signature in R1 packet. Dropping the packet"
+                                    );
+                                }
                             }
                         }
-                    }
-                    (None, Some(val)) => {
-                        if let Ok(pubkey_384) = val {
-                            let verifier = ECDSASHA384Signature(
-                                [0; 48],
-                                EncodedPointP384::from_bytes(pubkey_384)
-                                    .map_err(|_| HIPError::InvalidEncoding)?,
-                            );
-                            let verified = verifier.verify(
-                                &bytes_to_verify[..],
-                                signature_param
-                                    .ok_or_else(|| HIPError::SignatureError)?
-                                    .inner_ref()
-                                    .as_ref(),
-                            );
-                            if !verified? {
-                                hip_trace!("Invalid signature in R1 packet. Dropping the packet");
+                        (None, Some(val)) => {
+                            if let Ok(pubkey_384) = val {
+                                let verifier = ECDSASHA384Signature(
+                                    [0; 48],
+                                    EncodedPointP384::from_bytes(pubkey_384)
+                                        .map_err(|_| HIPError::InvalidEncoding)?,
+                                );
+                                let verified = verifier.verify(
+                                    &bytes_to_verify[..],
+                                    signature_param
+                                        .ok_or_else(|| HIPError::SignatureError)?
+                                        .get_signature_2()?,
+                                );
+                                if !verified? {
+                                    hip_trace!(
+                                        "Invalid signature in R1 packet. Dropping the packet"
+                                    );
+                                }
                             }
                         }
+                        (_, _) => unimplemented!(),
                     }
-                    (_, _) => unimplemented!(),
                 }
 
                 // Get the DH group and look it up in our list of supported groups.
                 // If we get a match, move to key-generation
-                let dhlist_param = dh_groups_param.ok_or_else(|| HIPError::FieldisNOTSet)?;
+                let dhlist_param = dh_groups_param.ok_or_else(|| HIPError::FieldNotSet)?;
                 let advertised_dh_groups = dhlist_param.get_groups()?; // supposed to be ordered by initiator's preference
                 let supported_dh_groups = [0x7, 0x9, 0x8, 0x3, 0x4, 0xa];
                 let mut selected_dh_group = None;
@@ -1106,11 +1150,11 @@ impl<'a> HIPDaemon<'a> {
 
                 // Get the responder's DH PubKey.
                 let (pk256_r, pk384_r) = match dh_param
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .ok_or_else(|| HIPError::FieldNotSet)?
                     .get_public_value()
                 {
-                    Ok(pk) if pk.len() != 64 => (Some(pk), None),
-                    Ok(pk) if pk.len() != 96 => (None, Some(pk)),
+                    Ok(pk) if pk.len() == 65 => (Some(pk), None),
+                    Ok(pk) if pk.len() == 97 => (None, Some(pk)),
                     Ok(_) => {
                         hip_debug!("Invalid Public Key value");
                         (None, None)
@@ -1121,7 +1165,7 @@ impl<'a> HIPDaemon<'a> {
                 // Compute the shared secret using the responder's pubkey and our DH keys
                 let (ss256, ss384) = match (pk256_r, pk384_r) {
                     (Some(pk), None) => {
-                        let temp = pk256_r.ok_or_else(|| HIPError::FieldisNOTSet)?;
+                        let temp = pk256_r.ok_or_else(|| HIPError::FieldNotSet)?;
                         let pk256_r = PkP256::from_bytes(temp)?;
                         let ss = ECDHNISTP256::generate_shared_secret(
                             &sk256.clone().ok_or_else(|| HIPError::ECCError)?,
@@ -1130,7 +1174,7 @@ impl<'a> HIPDaemon<'a> {
                         (Some(ss), None)
                     }
                     (None, Some(pk)) => {
-                        let temp = pk384_r.ok_or_else(|| HIPError::FieldisNOTSet)?;
+                        let temp = pk384_r.ok_or_else(|| HIPError::FieldNotSet)?;
                         let pk384_r = PkP384::from_bytes(temp)?;
                         let ss = ECDHNISTP384::<48>::generate_shared_secret(
                             &sk384.clone().ok_or_else(|| HIPError::ECCError)?,
@@ -1205,7 +1249,7 @@ impl<'a> HIPDaemon<'a> {
 
                 // Select a cipher from the list of advertised/offered ciphers
                 let offered_ciphers = cipher_param
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .ok_or_else(|| HIPError::FieldNotSet)?
                     .get_ciphers()?;
                 let supported_ciphers = [0x4, 0x2, 0x1]; // NULL (0x1), AES128CBC (0x2), AES256CBC (0x4)
                 let mut selected_cipher = None;
@@ -1230,7 +1274,7 @@ impl<'a> HIPDaemon<'a> {
 
                 // Select an esp_transform from the list of advertised/offered esp transforms
                 let offered_esp_transforms = esp_transform_param
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .ok_or_else(|| HIPError::FieldNotSet)?
                     .get_esp_suits()?;
                 // NULL with HMAC-SHA-256 (0x7), AES-128-CBC with HMAC-SHA-256 (0x8), AES-256-CBC with HMAC-SHA-256 (0x9)
                 let supported_esp_transform_suits = [0x9, 0x8, 0x7];
@@ -1249,11 +1293,11 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 // Output from kdf function i.e. key-material
-                // Note - you only need the first keymat_len_octet bytes from the output
+                // Note - you only need the first `keymat_len_octet bytes` from the output
                 let mut keymat = [0; 800];
                 let keymat_len_octets = Utils::compute_keymat_len(
                     hmac_alg,
-                    selected_cipher.ok_or_else(|| HIPError::FieldisNOTSet)?,
+                    selected_cipher.ok_or_else(|| HIPError::FieldNotSet)?,
                 );
 
                 if ss256.is_some() {
@@ -1273,7 +1317,7 @@ impl<'a> HIPDaemon<'a> {
                         keymat_len_octets,
                     );
                 } else if ss256.is_none() && ss384.is_none() {
-                    return Err(HIPError::FieldisNOTSet);
+                    return Err(HIPError::FieldNotSet);
                 }
 
                 // Save to keymat map.
@@ -1298,11 +1342,11 @@ impl<'a> HIPDaemon<'a> {
                 solution_param.init_solution_param();
                 solution_param.set_k_value(
                     puzzle_param
-                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .ok_or_else(|| HIPError::FieldNotSet)?
                         .get_k_value()?,
                 );
-                solution_param.set_opaque(opaque.ok_or_else(|| HIPError::FieldisNOTSet)??);
-                solution_param.set_random(irandom.ok_or_else(|| HIPError::FieldisNOTSet)??);
+                solution_param.set_opaque(opaque.ok_or_else(|| HIPError::FieldNotSet)??);
+                solution_param.set_random(irandom.ok_or_else(|| HIPError::FieldNotSet)??);
                 solution_param.set_solution(&jrandom);
 
                 // HIP DH Parameter
@@ -1313,7 +1357,7 @@ impl<'a> HIPDaemon<'a> {
                         dh_param256.init_dhparameter_param();
                         dh_param256
                             .set_group_id(selected_dh_group.ok_or_else(|| HIPError::Unrecognized)?);
-                        dh_param256.set_public_value_length(0x40); // pubkey len for ECDH256
+                        dh_param256.set_public_value_length(0x40 + 1); // uncompressed pubkey len for ECDH256
                         dh_param256.set_public_value(&pk256_i.unwrap().to_bytes());
                         (
                             HIPParamsTypes::DHParam(dh_param256),
@@ -1327,7 +1371,7 @@ impl<'a> HIPDaemon<'a> {
                         dh_param384.init_dhparameter_param();
                         dh_param384
                             .set_group_id(selected_dh_group.ok_or_else(|| HIPError::Unrecognized)?);
-                        dh_param384.set_public_value_length(0x60); // pubkey len for ECDH384
+                        dh_param384.set_public_value_length(0x60 + 1); // uncompressed pubkey len for ECDH384
                         dh_param384.set_public_value(&pk384_i.unwrap().to_bytes());
                         (
                             HIPParamsTypes::Default,
@@ -1387,11 +1431,13 @@ impl<'a> HIPDaemon<'a> {
                 // HIP Mac Parameter
                 let (mut mac256_param, mut mac384_param) = match hmac_alg {
                     0x1 => {
-                        let mut mac_param = MACParameter::new_checked([0; 32 + 4])?;
+                        let mut mac_param = MACParameter::new_checked([0; 32 + 8])?;
+                        mac_param.init_macparamter_param();
                         (Some(mac_param), None)
                     }
                     0x2 => {
-                        let mut mac_param = MACParameter::new_checked([0; 48 + 4])?;
+                        let mut mac_param = MACParameter::new_checked([0; 48 + 8])?;
+                        mac_param.init_macparamter_param();
                         (None, Some(mac_param))
                     }
                     _ => unimplemented!(),
@@ -1409,14 +1455,14 @@ impl<'a> HIPDaemon<'a> {
                                 .inner_ref()
                                 .as_ref()
                                 .iter()
-                                .chain(r1.inner_ref().as_ref().iter())
-                                .chain(solution_param.inner_ref().as_ref().iter())
-                                .chain(dh256.inner_ref().as_ref().iter())
-                                .chain(cipher_param.inner_ref().as_ref().iter())
-                                .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                .chain(hi256.inner_ref().as_ref().iter())
-                                .chain(echo_signed.inner_ref().as_ref().iter())
-                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                                .chain(r1.as_bytes().iter())
+                                .chain(solution_param.as_bytes().iter())
+                                .chain(dh256.as_bytes().iter())
+                                .chain(cipher_param.as_bytes().iter())
+                                .chain(esp_transform_param.as_bytes().iter())
+                                .chain(hi256.as_bytes().iter())
+                                .chain(echo_signed.as_bytes().iter())
+                                .chain(transfmt_param.as_bytes().iter())
                             {
                                 param_buf
                                     .push(*byte)
@@ -1431,14 +1477,14 @@ impl<'a> HIPDaemon<'a> {
                                 .inner_ref()
                                 .as_ref()
                                 .iter()
-                                .chain(r1.inner_ref().as_ref().iter())
-                                .chain(solution_param.inner_ref().as_ref().iter())
-                                .chain(dh384.inner_ref().as_ref().iter())
-                                .chain(cipher_param.inner_ref().as_ref().iter())
-                                .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                .chain(hi384.inner_ref().as_ref().iter())
-                                .chain(echo_signed.inner_ref().as_ref().iter())
-                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                                .chain(r1.as_bytes().iter())
+                                .chain(solution_param.as_bytes().iter())
+                                .chain(dh384.as_bytes().iter())
+                                .chain(cipher_param.as_bytes().iter())
+                                .chain(esp_transform_param.as_bytes().iter())
+                                .chain(hi384.as_bytes().iter())
+                                .chain(echo_signed.as_bytes().iter())
+                                .chain(transfmt_param.as_bytes().iter())
                             {
                                 param_buf
                                     .push(*byte)
@@ -1456,13 +1502,13 @@ impl<'a> HIPDaemon<'a> {
                                 .inner_ref()
                                 .as_ref()
                                 .iter()
-                                .chain(r1.inner_ref().as_ref().iter())
-                                .chain(solution_param.inner_ref().as_ref().iter())
-                                .chain(dh256.inner_ref().as_ref().iter())
-                                .chain(cipher_param.inner_ref().as_ref().iter())
-                                .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                .chain(hi256.inner_ref().as_ref().iter())
-                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                                .chain(r1.as_bytes().iter())
+                                .chain(solution_param.as_bytes().iter())
+                                .chain(dh256.as_bytes().iter())
+                                .chain(cipher_param.as_bytes().iter())
+                                .chain(esp_transform_param.as_bytes().iter())
+                                .chain(hi256.as_bytes().iter())
+                                .chain(transfmt_param.as_bytes().iter())
                             {
                                 param_buf
                                     .push(*byte)
@@ -1477,13 +1523,13 @@ impl<'a> HIPDaemon<'a> {
                                 .inner_ref()
                                 .as_ref()
                                 .iter()
-                                .chain(r1.inner_ref().as_ref().iter())
-                                .chain(solution_param.inner_ref().as_ref().iter())
-                                .chain(dh384.inner_ref().as_ref().iter())
-                                .chain(cipher_param.inner_ref().as_ref().iter())
-                                .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                .chain(hi384.inner_ref().as_ref().iter())
-                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                                .chain(r1.as_bytes().iter())
+                                .chain(solution_param.as_bytes().iter())
+                                .chain(dh384.as_bytes().iter())
+                                .chain(cipher_param.as_bytes().iter())
+                                .chain(esp_transform_param.as_bytes().iter())
+                                .chain(hi384.as_bytes().iter())
+                                .chain(transfmt_param.as_bytes().iter())
                             {
                                 param_buf
                                     .push(*byte)
@@ -1501,13 +1547,13 @@ impl<'a> HIPDaemon<'a> {
                                 .inner_ref()
                                 .as_ref()
                                 .iter()
-                                .chain(solution_param.inner_ref().as_ref().iter())
-                                .chain(dh256.inner_ref().as_ref().iter())
-                                .chain(cipher_param.inner_ref().as_ref().iter())
-                                .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                .chain(hi256.inner_ref().as_ref().iter())
-                                .chain(echo_signed.inner_ref().as_ref().iter())
-                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                                .chain(solution_param.as_bytes().iter())
+                                .chain(dh256.as_bytes().iter())
+                                .chain(cipher_param.as_bytes().iter())
+                                .chain(esp_transform_param.as_bytes().iter())
+                                .chain(hi256.as_bytes().iter())
+                                .chain(echo_signed.as_bytes().iter())
+                                .chain(transfmt_param.as_bytes().iter())
                             {
                                 param_buf
                                     .push(*byte)
@@ -1522,13 +1568,13 @@ impl<'a> HIPDaemon<'a> {
                                 .inner_ref()
                                 .as_ref()
                                 .iter()
-                                .chain(solution_param.inner_ref().as_ref().iter())
-                                .chain(dh384.inner_ref().as_ref().iter())
-                                .chain(cipher_param.inner_ref().as_ref().iter())
-                                .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                .chain(hi384.inner_ref().as_ref().iter())
-                                .chain(echo_signed.inner_ref().as_ref().iter())
-                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                                .chain(solution_param.as_bytes().iter())
+                                .chain(dh384.as_bytes().iter())
+                                .chain(cipher_param.as_bytes().iter())
+                                .chain(esp_transform_param.as_bytes().iter())
+                                .chain(hi384.as_bytes().iter())
+                                .chain(echo_signed.as_bytes().iter())
+                                .chain(transfmt_param.as_bytes().iter())
                             {
                                 param_buf
                                     .push(*byte)
@@ -1546,12 +1592,12 @@ impl<'a> HIPDaemon<'a> {
                                 .inner_ref()
                                 .as_ref()
                                 .iter()
-                                .chain(solution_param.inner_ref().as_ref().iter())
-                                .chain(dh256.inner_ref().as_ref().iter())
-                                .chain(cipher_param.inner_ref().as_ref().iter())
-                                .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                .chain(hi256.inner_ref().as_ref().iter())
-                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                                .chain(solution_param.as_bytes().iter())
+                                .chain(dh256.as_bytes().iter())
+                                .chain(cipher_param.as_bytes().iter())
+                                .chain(esp_transform_param.as_bytes().iter())
+                                .chain(hi256.as_bytes().iter())
+                                .chain(transfmt_param.as_bytes().iter())
                             {
                                 param_buf
                                     .push(*byte)
@@ -1566,12 +1612,12 @@ impl<'a> HIPDaemon<'a> {
                                 .inner_ref()
                                 .as_ref()
                                 .iter()
-                                .chain(solution_param.inner_ref().as_ref().iter())
-                                .chain(dh384.inner_ref().as_ref().iter())
-                                .chain(cipher_param.inner_ref().as_ref().iter())
-                                .chain(esp_transform_param.inner_ref().as_ref().iter())
-                                .chain(hi384.inner_ref().as_ref().iter())
-                                .chain(transfmt_param.inner_ref().as_ref().iter())
+                                .chain(solution_param.as_bytes().iter())
+                                .chain(dh384.as_bytes().iter())
+                                .chain(cipher_param.as_bytes().iter())
+                                .chain(esp_transform_param.as_bytes().iter())
+                                .chain(hi384.as_bytes().iter())
+                                .chain(transfmt_param.as_bytes().iter())
                             {
                                 param_buf
                                     .push(*byte)
@@ -1583,7 +1629,7 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 let current_r1pkt_len = hip_i2_packet.packet.get_header_length();
-                let pkt_len = current_r1pkt_len as usize * 8 + &param_buf.len();
+                let pkt_len = 8 * (1 + current_r1pkt_len as usize) + &param_buf.len();
                 hip_i2_packet.packet.set_header_length((pkt_len / 8) as u8);
                 let mut hmac_bytes: Vec<u8, U512> = Vec::new();
                 for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
@@ -1604,15 +1650,18 @@ impl<'a> HIPDaemon<'a> {
                 )?;
                 let hmac = HMACFactory::get(hmac_alg);
 
-                if mac256_param.is_some() {
-                    mac256_param
-                        .unwrap()
-                        .set_hmac(&SHA256HMAC::hmac_256(&hmac_bytes[..], hmac_key));
-                } else if mac384_param.is_some() {
-                    mac384_param
-                        .unwrap()
-                        .set_hmac(&SHA384HMAC::hmac_384(&hmac_bytes[..], hmac_key));
-                }
+                // Cant mutate enum in place.
+                let (mac256_param, mac384_param) = match (mac256_param, mac384_param) {
+                    (Some(mut val), None) => {
+                        val.set_hmac(&SHA256HMAC::hmac_256(&hmac_bytes[..], hmac_key));
+                        (Some(val), None)
+                    }
+                    (None, Some(mut val)) => {
+                        val.set_hmac(&SHA384HMAC::hmac_384(&hmac_bytes[..], hmac_key));
+                        (None, Some(val))
+                    }
+                    (_, _) => unimplemented!(),
+                };
 
                 // Compute Signature
                 //
@@ -1620,12 +1669,15 @@ impl<'a> HIPDaemon<'a> {
                 let signer_tuple = match self.privkey {
                     Some(val) if val.len() == 0x20 => {
                         let mut signature_param = SignatureParameter::new_checked([0; 72])?;
-                        let signer = ECDSASHA256Signature([0; 32], [0; 64]);
+                        let signer = ECDSASHA256Signature(val.try_into().unwrap(), [0; 64]);
                         (Some((signature_param, signer)), None)
                     }
                     Some(val) if val.len() == 0x30 => {
                         let mut signature_param = SignatureParameter::new_checked([0; 104])?;
-                        let signer = ECDSASHA384Signature([0; 48], EncodedPointP384::identity());
+                        let signer = ECDSASHA384Signature(
+                            val.try_into().unwrap(),
+                            EncodedPointP384::identity(),
+                        );
                         (None, Some((signature_param, signer)))
                     }
                     Some(_) => unimplemented!(),
@@ -1640,7 +1692,7 @@ impl<'a> HIPDaemon<'a> {
                                 .map_err(|_| HIPError::Bufferistooshort)?;
                         }
                         let current_r1pkt_len = hip_r1_packet.packet.get_header_length();
-                        let pkt_len = current_r1pkt_len as usize * 8 + &param_buf.len();
+                        let pkt_len = 8 * (1 + current_r1pkt_len as usize) + &param_buf.len();
                         hip_r1_packet.packet.set_header_length((pkt_len / 8) as u8);
                         let mut s: Vec<u8, U512> = Vec::new();
                         for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
@@ -1658,7 +1710,7 @@ impl<'a> HIPDaemon<'a> {
                                 .map_err(|_| HIPError::Bufferistooshort)?;
                         }
                         let current_r1pkt_len = hip_r1_packet.packet.get_header_length();
-                        let pkt_len = current_r1pkt_len as usize * 8 + &param_buf.len();
+                        let pkt_len = 8 * (1 + current_r1pkt_len as usize) + &param_buf.len();
                         hip_r1_packet.packet.set_header_length((pkt_len / 8) as u8);
                         let mut s: Vec<u8, U512> = Vec::new();
                         for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
@@ -1889,7 +1941,7 @@ impl<'a> HIPDaemon<'a> {
                 core::mem::swap(&mut src, &mut dst);
 
                 // Construct IPv4 packet
-                let ipv4_payload_len = (1 + hip_i2_packet.packet.get_header_length() as u16 * 8);
+                let ipv4_payload_len = (1 + hip_i2_packet.packet.get_header_length() as u16) * 8;
                 let ipv4_fixed_header_len = 0x14u8;
                 let mut ipv4_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
                 let mut ipv4_packet = Ipv4Packet::new_checked(
@@ -1972,17 +2024,24 @@ impl<'a> HIPDaemon<'a> {
                     });
                 }
 
-                if hip_state
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
-                    .is_i1_sent()
-                    || hip_state
-                        .ok_or_else(|| HIPError::FieldisNOTSet)?
-                        .is_closing()
-                    || hip_state
-                        .ok_or_else(|| HIPError::FieldisNOTSet)?
-                        .is_closed()
+                if hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_i1_sent()
+                    || hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_closing()
+                    || hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_closed()
                 {
                     hip_state = hip_state.map(|s| s.i2_sent());
+                    // Update HIP StateMachine
+                    let mut old_hip_state = self.hip_state_machine.get_mut(&rhit, &ihit)?;
+                    match (&mut old_hip_state, hip_state) {
+                        (Some(old_state), Some(new_state)) => **old_state = new_state,
+                        (_, _) => {
+                            hip_debug!(
+                                "Invalid states reached, prev: {:?}, new: {:?}",
+                                old_hip_state,
+                                hip_state
+                            );
+                            return Err(HIPError::InvalidState);
+                        }
+                    }
                 }
             }
 
@@ -2011,11 +2070,13 @@ impl<'a> HIPDaemon<'a> {
                 let mut parameters = hip_packet.get_parameters();
 
                 // Construct R1 packet
-                let mut hip_i2_packet = R1Packet::<[u8; 1024]>::new_r1packet().unwrap();
+                let mut hip_i2_packet = I2Packet::<[u8; 1024]>::new_i2packet().unwrap();
                 hip_i2_packet
                     .packet
                     .set_senders_hit(&hip_packet.get_senders_hit());
-                // hip_r1_packet.packet.set_receivers_hit(&ihit);
+                hip_i2_packet
+                    .packet
+                    .set_receivers_hit(&hip_packet.get_receivers_hit());                
                 hip_i2_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
                 hip_i2_packet.packet.set_version(HIP_VERSION as u8);
 
@@ -2026,7 +2087,7 @@ impl<'a> HIPDaemon<'a> {
                     _ => return Err(HIPError::__Nonexhaustive),
                 };
 
-                let param_list = parameters.ok_or_else(|| HIPError::FieldisNOTSet)?;
+                let param_list = parameters.ok_or_else(|| HIPError::FieldNotSet)?;
                 param_list.iter().for_each(|param| match param {
                     HIPParamsTypes::ESPInfoParam(val) => {
                         hip_debug!("ESP Info parameter");
@@ -2067,10 +2128,10 @@ impl<'a> HIPDaemon<'a> {
                             };
                             match hi[0..2] {
                                 [0, 1] => {
-                                    let responders_hit = HIT::compute_hit::<80>(hi, oga);
-                                    hip_debug!("Responder's HIT: {:?}", responders_hit);
-                                    hip_debug!("Initiator's HIT: {:?}", &ihit);
-                                    hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
+                                    let responders_hit = HIT::compute_hit::<82>(hi, oga);
+                                    hip_debug!("Responder's computed HIT: {:?}", responders_hit);
+                                    hip_debug!("Initiator's actual HIT: {:?}", &ihit);
+                                    hip_debug!("own HIT: {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &responders_hit) {
                                         hip_trace!("Invalid HIT");
                                         panic!(
@@ -2080,10 +2141,10 @@ impl<'a> HIPDaemon<'a> {
                                     }
                                 }
                                 [0, 2] => {
-                                    let responders_hit = HIT::compute_hit::<112>(hi, oga);
-                                    hip_debug!("Responder's HIT: {:?}", responders_hit);
-                                    hip_debug!("Initiator's HIT: {:?}", &ihit);
-                                    hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
+                                    let responders_hit = HIT::compute_hit::<114>(hi, oga);
+                                    hip_debug!("Responder's computed HIT: {:?}", responders_hit);
+                                    hip_debug!("Initiator's actual HIT: {:?}", &ihit);
+                                    hip_debug!("own HIT: {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &responders_hit) {
                                         hip_trace!("Invalid HIT");
                                         panic!(
@@ -2100,12 +2161,13 @@ impl<'a> HIPDaemon<'a> {
                                     responder_pubkey256 = Some(
                                         hi[2..].try_into().map_err(|_| HIPError::IncorrectLength),
                                     );
-                                    // responder_pubkey256 = Err(HIP);
+                                    responder_pubkey384 = None;
                                 }
                                 [0, 2] => {
                                     responder_pubkey384 = Some(
                                         hi[2..].try_into().map_err(|_| HIPError::IncorrectLength),
                                     );
+                                    responder_pubkey256 = None;
                                 }
                                 _ => unimplemented!(),
                             }
@@ -2181,7 +2243,7 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 let oga_id = HIT::get_responders_oga_id(&rhit);
-
+                let oga = oga_id << 4;
                 match oga_id {
                     0x10 | 0x20 | 0x30 => {}
                     _ => {
@@ -2192,20 +2254,17 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 let is_hit_smaller = Utils::is_hit_smaller(&rhit, &ihit);
-                if hip_state
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
-                    .is_i2_sent()
-                {
+                if hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_i2_sent() {
                     if is_hit_smaller {
                         hip_debug!("Dropping I2 packet");
                     }
                 }
 
                 let jrandom = solution_param
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .ok_or_else(|| HIPError::FieldNotSet)?
                     .get_solution()?;
                 let irandom = solution_param
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .ok_or_else(|| HIPError::FieldNotSet)?
                     .get_random()?;
 
                 let mut i = [0u8; 32];
@@ -2265,7 +2324,7 @@ impl<'a> HIPDaemon<'a> {
 
                 // Get responder public key and compute shared_secret
                 let pubkey_r = dh_param
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .ok_or_else(|| HIPError::FieldNotSet)?
                     .get_public_value()?;
                 let (ss256, ss384) = match (sk_i256, sk_i384) {
                     (Some(sk), None) => {
@@ -2317,7 +2376,7 @@ impl<'a> HIPDaemon<'a> {
 
                 // Select a cipher from the list of advertised/offered ciphers
                 let offered_ciphers = cipher_param
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .ok_or_else(|| HIPError::FieldNotSet)?
                     .get_ciphers()?;
                 let supported_ciphers = [0x4, 0x2, 0x1]; // NULL (0x1), AES128CBC (0x2), AES256CBC (0x4)
                 let mut selected_cipher = None;
@@ -2342,24 +2401,24 @@ impl<'a> HIPDaemon<'a> {
 
                 // HIP ESP Transform Parameter
                 if esp_transform_param
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .ok_or_else(|| HIPError::FieldNotSet)?
                     .get_esp_suits()?
                     .is_empty()
                 {
                     hip_debug!("ESP transform suit was not negotiated.");
-                    return Err(HIPError::FieldisNOTSet);
+                    return Err(HIPError::FieldNotSet);
                 }
 
                 let selected_esp_transform = esp_transform_param.unwrap().get_esp_suits()?[0];
 
                 initiators_spi = Some(
                     esp_info_param
-                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .ok_or_else(|| HIPError::FieldNotSet)?
                         .get_new_spi()?,
                 );
                 initiators_keymat_index = Some(
                     esp_info_param
-                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .ok_or_else(|| HIPError::FieldNotSet)?
                         .get_keymat_index()?,
                 );
 
@@ -2368,7 +2427,7 @@ impl<'a> HIPDaemon<'a> {
                 let mut keymat = [0; 800];
                 let keymat_len_octets = Utils::compute_keymat_len(
                     hmac_alg,
-                    selected_cipher.ok_or_else(|| HIPError::FieldisNOTSet)?,
+                    selected_cipher.ok_or_else(|| HIPError::FieldNotSet)?,
                 );
 
                 if ss256.is_some() {
@@ -2388,7 +2447,7 @@ impl<'a> HIPDaemon<'a> {
                         keymat_len_octets,
                     );
                 } else if ss256.is_none() && ss384.is_none() {
-                    return Err(HIPError::FieldisNOTSet);
+                    return Err(HIPError::FieldNotSet);
                 }
 
                 // Save to keymat map.
@@ -2403,7 +2462,7 @@ impl<'a> HIPDaemon<'a> {
                     let (aes_key, hmac_key) =
                         Utils::get_keys(&keymat, hmac_alg, selected_cipher.unwrap(), &ihit, &rhit)?;
                     let cipher = SymmetricCiphersFactory::get(
-                        selected_cipher.ok_or_else(|| HIPError::FieldisNOTSet)?,
+                        selected_cipher.ok_or_else(|| HIPError::FieldNotSet)?,
                     );
                     let (aes128, aes256) = match cipher {
                         CipherTypes::AES128(val) => {
@@ -2417,10 +2476,10 @@ impl<'a> HIPDaemon<'a> {
                         _ => unimplemented!(),
                     };
                     let iv = encrypted_param
-                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .ok_or_else(|| HIPError::FieldNotSet)?
                         .get_iv(iv_length)?;
                     let data = encrypted_param
-                        .ok_or_else(|| HIPError::FieldisNOTSet)?
+                        .ok_or_else(|| HIPError::FieldNotSet)?
                         .get_encrypted_data(iv_length)?;
                     let data_len = data.len();
                     let host_id_data = match (aes128, aes256) {
@@ -2573,7 +2632,7 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 let current_r1pkt_len = hip_i2_packet.packet.get_header_length();
-                let pkt_len = current_r1pkt_len as usize * 8 + &param_buf.len();
+                let pkt_len = 8 * (1 + current_r1pkt_len as usize) + &param_buf.len();
                 hip_i2_packet.packet.set_header_length((pkt_len / 8) as u8);
                 let mut hmac_bytes: Vec<u8, U512> = Vec::new();
                 for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
@@ -2597,18 +2656,14 @@ impl<'a> HIPDaemon<'a> {
                 match hmac {
                     HMACTypes::HMAC256(mac) => {
                         if SHA256HMAC::hmac_256(&hmac_bytes[..], hmac_key)
-                            != mac_param
-                                .ok_or_else(|| HIPError::FieldisNOTSet)?
-                                .get_hmac()?
+                            != mac_param.ok_or_else(|| HIPError::FieldNotSet)?.get_hmac()?
                         {
                             hip_debug!("Invalid HMAC. Dropping the packet");
                         }
                     }
                     HMACTypes::HMAC384(mac) => {
                         if SHA384HMAC::hmac_384(&hmac_bytes[..], hmac_key)
-                            != mac_param
-                                .ok_or_else(|| HIPError::FieldisNOTSet)?
-                                .get_hmac()?
+                            != mac_param.ok_or_else(|| HIPError::FieldNotSet)?.get_hmac()?
                         {
                             hip_debug!("Invalid HMAC. Dropping the packet");
                         }
@@ -2683,7 +2738,7 @@ impl<'a> HIPDaemon<'a> {
 
                 let keymat_index = Utils::compute_hip_keymat_len(
                     hmac_alg,
-                    selected_cipher.ok_or_else(|| HIPError::FieldisNOTSet)?,
+                    selected_cipher.ok_or_else(|| HIPError::FieldNotSet)?,
                 );
                 let responder_spi = getrandom::<4>([12; 32]);
 
@@ -2832,7 +2887,7 @@ impl<'a> HIPDaemon<'a> {
                 core::mem::swap(&mut src, &mut dst);
 
                 // Construct IPv4 packet
-                let ipv4_payload_len = (hip_r2_packet.packet.get_header_length() * 8 + 8) as u16;
+                let ipv4_payload_len = (1 + hip_r2_packet.packet.get_header_length() as u16) * 8;
                 let ipv4_fixed_header_len = 0x14u8;
                 let mut ipv4_buffer = [0u8; 512]; // max- allocation to accomodate p384 parameter variants
                 let mut ipv4_packet = Ipv4Packet::new_checked(
@@ -3115,7 +3170,7 @@ impl<'a> HIPDaemon<'a> {
                 let hmac = HMACFactory::get(hmac_alg);
                 let param_list = hip_packet
                     .get_parameters()
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?;
+                    .ok_or_else(|| HIPError::FieldNotSet)?;
                 let mut esp_info_param = None;
                 let mut hmac_param = None;
                 let mut signature_param = None;
@@ -3169,7 +3224,7 @@ impl<'a> HIPDaemon<'a> {
                             &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize],
                             hmac_key,
                         ) != hmac_param
-                            .ok_or_else(|| HIPError::FieldisNOTSet)?
+                            .ok_or_else(|| HIPError::FieldNotSet)?
                             .get_hmac2()?
                         {
                             hip_debug!("Invalid HMAC256. Dropping the packet");
@@ -3180,7 +3235,7 @@ impl<'a> HIPDaemon<'a> {
                             &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize],
                             hmac_key,
                         ) != hmac_param
-                            .ok_or_else(|| HIPError::FieldisNOTSet)?
+                            .ok_or_else(|| HIPError::FieldNotSet)?
                             .get_hmac2()?
                         {
                             hip_debug!("Invalid HMAC384. Dropping the packet");
@@ -3192,12 +3247,12 @@ impl<'a> HIPDaemon<'a> {
                 hip_debug!("HMAC is ok. Compute signature");
 
                 let hmac_param_len = hmac_param
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .ok_or_else(|| HIPError::FieldNotSet)?
                     .inner_ref()
                     .as_ref()
                     .len();
                 let hmac_param_bytes = hmac_param
-                    .ok_or_else(|| HIPError::FieldisNOTSet)?
+                    .ok_or_else(|| HIPError::FieldNotSet)?
                     .inner_ref()
                     .as_ref();
                 let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
@@ -3439,14 +3494,10 @@ impl<'a> HIPDaemon<'a> {
         }
 
         if hip_state
-            .ok_or_else(|| HIPError::FieldisNOTSet)?
+            .ok_or_else(|| HIPError::FieldNotSet)?
             .is_unassociated()
-            || hip_state
-                .ok_or_else(|| HIPError::FieldisNOTSet)?
-                .is_closing()
-            || hip_state
-                .ok_or_else(|| HIPError::FieldisNOTSet)?
-                .is_closed()
+            || hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_closing()
+            || hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_closed()
         {
             hip_debug!("HIP_STATE ==: {:?}", hip_state);
             hip_debug!("Starting HIP BEX");

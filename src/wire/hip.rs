@@ -279,7 +279,9 @@ impl<'a, T: AsRef<[u8]> + ?Sized> HIPPacket<&'a T> {
                         EchoResponseUnsignedParameter::new_checked(param_data).unwrap(),
                     )
                 }
-                _ => {hip_debug!("Unknown parameter, param_type_id: {}", param_type)},
+                _ => {
+                    hip_debug!("Unknown parameter, param_type_id: {}", param_type)
+                }
             }
             idx += 1;
             offset += total_param_len as usize;
@@ -462,8 +464,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> R1Packet<T> {
         let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[header_len as usize..header_len as usize + param_len]
-            .copy_from_slice(param_as_slice);
+        data[header_len as usize..header_len as usize + param_len].copy_from_slice(param_as_slice);
         let new_len = header_len as usize + param_len;
         self.packet.set_header_length(((new_len - 8) / 8) as u8);
     }
@@ -527,10 +528,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> I2Packet<T> {
         let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[header_len as usize..header_len as usize + param_len]
-            .copy_from_slice(param_as_slice);
+        data[header_len as usize..header_len as usize + param_len].copy_from_slice(param_as_slice);
         let new_len = header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8 - 8) / 8);
+        self.packet.set_header_length(((new_len - 8) / 8) as u8);
     }
 
     /// Returns a ref to the underlying buffer.
@@ -583,10 +583,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> R2Packet<T> {
         let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[header_len as usize..header_len as usize + param_len]
-            .copy_from_slice(param_as_slice);
+        data[header_len as usize..header_len as usize + param_len].copy_from_slice(param_as_slice);
         let new_len = header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8 - 8) / 8);
+        self.packet.set_header_length(((new_len - 8) / 8) as u8);
     }
 
     /// Returns a ref to the underlying buffer.
@@ -639,10 +638,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> UpdatePacket<T> {
         let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[header_len as usize..header_len as usize + param_len]
-            .copy_from_slice(param_as_slice);
+        data[header_len as usize..header_len as usize + param_len].copy_from_slice(param_as_slice);
         let new_len = header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8 - 8) / 8);
+        self.packet.set_header_length(((new_len - 8) / 8) as u8);
     }
 }
 
@@ -688,10 +686,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> NotifyPacket<T> {
         let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[header_len as usize..header_len as usize + param_len]
-            .copy_from_slice(param_as_slice);
+        data[header_len as usize..header_len as usize + param_len].copy_from_slice(param_as_slice);
         let new_len = header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8 - 8) / 8);
+        self.packet.set_header_length(((new_len - 8) / 8) as u8);
     }
 }
 
@@ -727,10 +724,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ClosePacket<T> {
         let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[header_len as usize..header_len as usize + param_len]
-            .copy_from_slice(param_as_slice);
+        data[header_len as usize..header_len as usize + param_len].copy_from_slice(param_as_slice);
         let new_len = header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8 - 8) / 8);
+        self.packet.set_header_length(((new_len - 8) / 8) as u8);
     }
 }
 
@@ -776,10 +772,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> CloseAckPacket<T> {
         let param_as_slice = &param.into_inner()[..param_len];
         let data = self.packet.buffer.as_mut();
 
-        data[header_len as usize..header_len as usize + param_len]
-            .copy_from_slice(param_as_slice);
+        data[header_len as usize..header_len as usize + param_len].copy_from_slice(param_as_slice);
         let new_len = header_len as usize + param_len;
-        self.packet.set_header_length((new_len as u8 - 8) / 8);
+        self.packet.set_header_length(((new_len - 8) / 8) as u8);
     }
 }
 
@@ -920,6 +915,20 @@ impl<T: AsRef<[u8]>> R1CounterParam<T> {
         let counter = NetworkEndian::read_u64(&data[field::HIP_R1_COUNTER_OFFSET]);
         Ok(counter)
     }
+
+    /// Get R1 Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
+    }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> R1CounterParam<T> {
@@ -950,6 +959,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> R1CounterParam<T> {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct PuzzleParameter<T> {
     buffer: HIPParameter<T>,
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for PuzzleParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
 }
 
 // impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a PuzzleParameter<T>> for
@@ -1045,6 +1060,20 @@ impl<T: AsRef<[u8]>> PuzzleParameter<T> {
             ..field::HIP_PUZZLE_RANDOM_I_OFFSET.start + rhash_len as usize];
         Ok(random)
     }
+
+    /// Get Puzzle Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
+    }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> PuzzleParameter<T> {
@@ -1059,6 +1088,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> PuzzleParameter<T> {
             + field::HIP_PUZZLE_OPAQUE_LENGTH];
         self.buffer.set_type(field::HIP_PUZZLE_TYPE as u16);
         self.buffer.set_length(0);
+    }
+
+    /// Sets length of puzzle parameter, note: excludes first 4 bytes and padding.
+    #[inline]
+    pub fn set_length(&mut self, len: u16) {
+        self.buffer.set_length(len);
     }
 
     /// Sets the `k` value of the puzzle parameter. #K is the number of verified
@@ -1114,7 +1149,8 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for SolutionParameter<T> {
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a SolutionParameter<T>> for SolutionParameter<&'a [u8]> {
     fn fromtype(from: &'a SolutionParameter<T>) -> Result<Self> {
-        SolutionParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        SolutionParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -1152,7 +1188,7 @@ impl<T: AsRef<[u8]>> SolutionParameter<T> {
                 (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
             if len < param_len {
                 Err(HIPError::Bufferistooshort)
-            } else if param_len < field::HIP_SOLUTION_J_OFFSET.end {
+            } else if param_len != 8 && param_len < field::HIP_SOLUTION_J_OFFSET.end {
                 Err(HIPError::IncorrectHeaderLength)
             } else {
                 Ok(())
@@ -1198,6 +1234,20 @@ impl<T: AsRef<[u8]>> SolutionParameter<T> {
         let data = self.buffer.buffer.as_ref();
         let solution = &data[field::HIP_SOLUTION_J_OFFSET.start..field::HIP_SOLUTION_J_LENGTH];
         Ok(solution)
+    }
+
+    /// Get Solution Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
 
@@ -1264,6 +1314,12 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> SolutionParameter<T> {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct DHGroupListParameter<T> {
     buffer: HIPParameter<T>,
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for DHGroupListParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
 }
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a DHGroupListParameter<T>>
@@ -1381,9 +1437,19 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for DHParameter<T> {
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a DHParameter<T>> for DHParameter<&'a [u8]> {
     fn fromtype(from: &'a DHParameter<T>) -> Result<Self> {
-        DHParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        DHParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
+
+// impl<'a> DHParameter<&'a [u8]> {
+//     #[inline]
+//     pub fn finalize(&mut self) -> Result<()> {
+//         let len = 4 + self.buffer.get_length();
+//         let data = self.buffer.buffer.as_mut();
+//         *self = DHParameter::new_checked(&data[..len as usize])?;
+//     }
+// }
 
 impl<T: AsRef<[u8]>> DHParameter<T> {
     /// Construct a new unchecked DHParameter packet structure.
@@ -1462,6 +1528,20 @@ impl<T: AsRef<[u8]>> DHParameter<T> {
             Err(HIPError::__Nonexhaustive) // This should probably be unreachable
         }
     }
+
+    /// Get DH Parameters length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
+    }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> DHParameter<T> {
@@ -1502,10 +1582,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> DHParameter<T> {
     pub fn set_public_value(&mut self, pub_val: &[u8]) -> Result<()> {
         if let Ok(public_value_length) = self.get_public_value_length() {
             if public_value_length == 0x0 {
-                return Err(HIPError::FieldisNOTSet);
+                return Err(HIPError::FieldNotSet);
             };
             let mut len = self.buffer.get_length();
-            len += pub_val.len() as u16;
+            len += pub_val.len() as u16; // uncompressed elliptic curve key
             self.buffer.set_length(len);
             // self.set_public_value_length(pub_val.len() as u16)?;
             {
@@ -1543,7 +1623,8 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for CipherParameter<T> {
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a CipherParameter<T>> for CipherParameter<&'a [u8]> {
     fn fromtype(from: &'a CipherParameter<T>) -> Result<Self> {
-        CipherParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        CipherParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -1602,6 +1683,20 @@ impl<T: AsRef<[u8]>> CipherParameter<T> {
         let length = self.buffer.get_length();
         Ok(&data[field::HIP_CIPHER_LIST_OFFSET.start
             ..field::HIP_CIPHER_LIST_OFFSET.start + length as usize])
+    }
+
+    /// Get Cipher Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
 
@@ -1669,7 +1764,8 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for HostIdParameter<T> {
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a HostIdParameter<T>> for HostIdParameter<&'a [u8]> {
     fn fromtype(from: &'a HostIdParameter<T>) -> Result<Self> {
-        HostIdParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        HostIdParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -1754,7 +1850,7 @@ impl<T: AsRef<[u8]>> HostIdParameter<T> {
         let data = self.buffer.buffer.as_ref();
         if let Ok(hi_length) = self.get_hi_length() {
             if hi_length == 0 {
-                return Err(HIPError::FieldisNOTSet);
+                return Err(HIPError::FieldNotSet);
             };
         }
         Ok(&data[field::HIP_HI_OFFSET.start
@@ -1768,6 +1864,20 @@ impl<T: AsRef<[u8]>> HostIdParameter<T> {
         let di_length = self.get_di_length().unwrap();
         let offset = field::HIP_HI_OFFSET.start + self.get_hi_length().unwrap() as usize;
         Ok(&data[offset..offset + di_length as usize])
+    }
+
+    /// Get HostId Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
 
@@ -1851,7 +1961,7 @@ impl<T: AsMut<[u8]> + AsRef<[u8]>> HostIdParameter<T> {
         let di_len = di.len();
         if let Ok(hi_len) = self.get_hi_length() {
             if hi_len == 0 {
-                return Err(HIPError::FieldisNOTSet);
+                return Err(HIPError::FieldNotSet);
             };
         }
 
@@ -1880,6 +1990,12 @@ impl<T: AsMut<[u8]> + AsRef<[u8]>> HostIdParameter<T> {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct HITSuitListParameter<T> {
     buffer: HIPParameter<T>,
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for HITSuitListParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
 }
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a HITSuitListParameter<T>>
@@ -2004,7 +2120,8 @@ impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a TransportListParameter<T>>
     for TransportListParameter<&'a [u8]>
 {
     fn fromtype(from: &'a TransportListParameter<T>) -> Result<Self> {
-        TransportListParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        TransportListParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -2063,6 +2180,20 @@ impl<T: AsRef<[u8]>> TransportListParameter<T> {
         let len = self.buffer.get_length();
         Ok(&data[field::HIP_TRANSPORT_FORMAT_LIST_OFFSET.start
             ..field::HIP_TRANSPORT_FORMAT_LIST_OFFSET.start + len as usize])
+    }
+
+    /// Get TransportFormatList Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
 
@@ -2127,7 +2258,8 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for MACParameter<T> {
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a MACParameter<T>> for MACParameter<&'a [u8]> {
     fn fromtype(from: &'a MACParameter<T>) -> Result<Self> {
-        MACParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        MACParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -2164,7 +2296,7 @@ impl<T: AsRef<[u8]>> MACParameter<T> {
                 (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
             if len < param_len {
                 Err(HIPError::Bufferistooshort)
-            } else if param_len < field::HIP_MAC_OFFSET.start {
+            } else if param_len != 8 && param_len < field::HIP_MAC_OFFSET.start {
                 Err(HIPError::IncorrectHeaderLength)
             } else {
                 Ok(())
@@ -2184,6 +2316,20 @@ impl<T: AsRef<[u8]>> MACParameter<T> {
         let data = self.buffer.buffer.as_ref();
         let len = self.buffer.get_length();
         Ok(&data[field::HIP_MAC_OFFSET.start..field::HIP_MAC_OFFSET.start + len as usize])
+    }
+
+    /// Get MAC Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
 
@@ -2350,7 +2496,8 @@ pub struct SignatureParameter<T> {
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a SignatureParameter<T>> for SignatureParameter<&'a [u8]> {
     fn fromtype(from: &'a SignatureParameter<T>) -> Result<Self> {
-        SignatureParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        SignatureParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -2419,6 +2566,20 @@ impl<T: AsRef<[u8]>> SignatureParameter<T> {
         Ok(NetworkEndian::read_u16(
             &data[field::HIP_SIG_ALG_TYPE_OFFSET],
         ))
+    }
+
+    /// Get Signature Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
 
@@ -2755,7 +2916,7 @@ impl<T: AsRef<[u8]>> EncryptedParameter<T> {
                 + field::HIP_TLV_TYPE_LENGTH
                 + field::HIP_ENCRYPTED_RESERVED_LENGTH) as u16
         {
-            return Err(HIPError::FieldisNOTSet);
+            return Err(HIPError::FieldNotSet);
         };
         let offset = field::HIP_ENCRYPTED_IV_OFFSET.start;
         Ok(&data[offset..offset + iv_length as usize])
@@ -2772,7 +2933,7 @@ impl<T: AsRef<[u8]>> EncryptedParameter<T> {
                 + field::HIP_ENCRYPTED_RESERVED_LENGTH
                 + iv_length as usize) as u16
         {
-            return Err(HIPError::FieldisNOTSet);
+            return Err(HIPError::FieldNotSet);
         };
         let length = self.buffer.get_length();
         let offset = field::HIP_ENCRYPTED_IV_OFFSET.start + iv_length as usize;
@@ -2822,7 +2983,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> EncryptedParameter<T> {
                 + field::HIP_TLV_TYPE_LENGTH
                 + field::HIP_ENCRYPTED_RESERVED_LENGTH) as u16
         {
-            return Err(HIPError::FieldisNOTSet);
+            return Err(HIPError::FieldNotSet);
         };
         let data = self.buffer.buffer.as_mut();
         let offset = field::HIP_ENCRYPTED_IV_OFFSET.start + iv_length as usize;
@@ -2884,7 +3045,7 @@ impl<T: AsRef<[u8]>> NotificationParameter<T> {
         if len
             == (field::HIP_NOTIFICATION_RESERVED_LENGTH + field::HIP_NOTIFY_DATA_TYPE_LENGTH) as u16
         {
-            return Err(HIPError::FieldisNOTSet);
+            return Err(HIPError::FieldNotSet);
         };
         let offset = field::HIP_NOTIFICATION_DATA_OFFSET.start;
         let data_boundary = len
@@ -3150,6 +3311,20 @@ impl<T: AsRef<[u8]>> EchoResponseSignedParameter<T> {
         Ok(&data[field::HIP_ECHO_RESPONSE_SIGNED_OFFSET.start
             ..field::HIP_ECHO_RESPONSE_SIGNED_OFFSET.start + len as usize])
     }
+
+    /// Get EchoResponseSigned Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
+    }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> EchoResponseSignedParameter<T> {
@@ -3317,7 +3492,8 @@ impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a ESPTransformParameter<T>>
     for ESPTransformParameter<&'a [u8]>
 {
     fn fromtype(from: &'a ESPTransformParameter<T>) -> Result<Self> {
-        ESPTransformParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        ESPTransformParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -3376,6 +3552,20 @@ impl<T: AsRef<[u8]>> ESPTransformParameter<T> {
         Ok(&data
             [field::HIP_SUITS_LIST_OFFSET.start..field::HIP_SUITS_LIST_OFFSET.start + len as usize])
     }
+
+    /// Get ESPTransform Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
+    }
 }
 impl<T: AsRef<[u8]> + AsMut<[u8]>> ESPTransformParameter<T> {
     /// Initialize ESP Transform parameter
@@ -3399,8 +3589,8 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ESPTransformParameter<T> {
 
         for _suit in suits.iter().step_by(2) {
             let subslice = &suits[counter..counter + 2];
-            data[field::HIP_SUITS_LIST_OFFSET.start + counter
-                ..field::HIP_SUITS_LIST_OFFSET.start + counter + 2]
+            data[field::HIP_SUITS_LIST_OFFSET.start + field::HIP_SUITS_RESERVED_LENGTH + counter
+                ..field::HIP_SUITS_LIST_OFFSET.start + field::HIP_SUITS_RESERVED_LENGTH + counter + 2]
                 .copy_from_slice(subslice);
             counter += 2;
         }
@@ -3435,7 +3625,8 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for ESPInfoParameter<T> {
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a ESPInfoParameter<T>> for ESPInfoParameter<&'a [u8]> {
     fn fromtype(from: &'a ESPInfoParameter<T>) -> Result<Self> {
-        ESPInfoParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        ESPInfoParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -3475,7 +3666,7 @@ impl<T: AsRef<[u8]>> ESPInfoParameter<T> {
                 (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
             if len < param_len {
                 Err(HIPError::Bufferistooshort)
-            } else if param_len < field::HIP_ESP_INFO_NEW_SPI_OFFSET.end {
+            } else if param_len !=8 && param_len < field::HIP_ESP_INFO_NEW_SPI_OFFSET.end {
                 Err(HIPError::IncorrectHeaderLength)
             } else {
                 Ok(())
@@ -3513,6 +3704,20 @@ impl<T: AsRef<[u8]>> ESPInfoParameter<T> {
         Ok(NetworkEndian::read_u32(
             &data[field::HIP_ESP_INFO_NEW_SPI_OFFSET],
         ))
+    }
+
+    /// Get ESPInfo Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes. 
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8]{
+        &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
 
