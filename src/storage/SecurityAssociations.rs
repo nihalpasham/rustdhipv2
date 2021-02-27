@@ -244,10 +244,16 @@ impl<'a> SecurityAssociationDatabase<'a> {
         &mut self,
         sa_key: String<U80>,
         val: SecurityAssociationRecord,
-    ) -> Result<SecurityAssociationRecord> {
+    ) -> Result<Option<SecurityAssociationRecord>> {
         let status = match self.record.map_store.insert(SAKeyString { s: sa_key }, val) {
-            Ok(val) => val.unwrap(),
-            Err(_e) => return Err(HIPError::MapInsertionOpFailed),
+            Ok(val) => match val {
+                None => {
+                    hip_debug!("(key, value) pair inserted");
+                    val
+                }
+                _ => unreachable!(),
+            },
+            Err(e) => return Err(HIPError::MapInsertionOpFailed),
         };
         Ok(status)
     }

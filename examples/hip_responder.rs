@@ -82,9 +82,9 @@ fn main() {
     // HIP Daemon instantiation
     let state_store = &mut StateStore::new();
     let keymat_store = &mut GenericValueStore::<[u8; 800]>::new();
-    let dh_map = &mut GenericValueStore::<InitiatorDHKeys>::new();
+    let dh_map = &mut GenericValueStore::<DHKeys>::new();
     let cipher_map = &mut GenericValueStore::<Option<u8>>::new();
-    let pubkey_map = &mut GenericValueStore::<ResponderPubKey>::new();
+    let pubkey_map = &mut GenericValueStore::<SharedDHPubKey>::new();
     let state_vars_map = &mut GenericValueStore::<StateVariables>::new();
     let key_info_map = &mut GenericValueStore::<KeyInfo>::new();
     let sa_map = &mut SARecordStore::new();

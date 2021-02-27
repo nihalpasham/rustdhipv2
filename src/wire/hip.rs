@@ -924,9 +924,9 @@ impl<T: AsRef<[u8]>> R1CounterParam<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
@@ -1069,14 +1069,26 @@ impl<T: AsRef<[u8]>> PuzzleParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> PuzzleParameter<T> {
+
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns a mutable `Puzzle` parameter (i.e. underlying buffer is mutable).
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<PuzzleParameter<T>> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_puzzle_param();
+        Ok(packet)
+    }
     /// Initialize puzzle parameter
     #[inline]
     pub fn init_puzzle_param(&mut self) {
@@ -1223,8 +1235,8 @@ impl<T: AsRef<[u8]>> SolutionParameter<T> {
     #[inline]
     pub fn get_random(&self) -> Result<&[u8]> {
         let data = self.buffer.buffer.as_ref();
-        let random =
-            &data[field::HIP_SOLUTION_RANDOM_I_OFFSET.start..field::HIP_SOLUTION_RANDOM_I_LENGTH];
+        let random = &data[field::HIP_SOLUTION_RANDOM_I_OFFSET.start
+            ..field::HIP_SOLUTION_RANDOM_I_OFFSET.start + field::HIP_SOLUTION_RANDOM_I_LENGTH];
         Ok(random)
     }
 
@@ -1232,7 +1244,8 @@ impl<T: AsRef<[u8]>> SolutionParameter<T> {
     #[inline]
     pub fn get_solution(&self) -> Result<&[u8]> {
         let data = self.buffer.buffer.as_ref();
-        let solution = &data[field::HIP_SOLUTION_J_OFFSET.start..field::HIP_SOLUTION_J_LENGTH];
+        let solution = &data[field::HIP_SOLUTION_J_OFFSET.start
+            ..field::HIP_SOLUTION_J_OFFSET.start + field::HIP_SOLUTION_J_LENGTH];
         Ok(solution)
     }
 
@@ -1244,9 +1257,9 @@ impl<T: AsRef<[u8]>> SolutionParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
@@ -1385,6 +1398,20 @@ impl<T: AsRef<[u8]>> DHGroupListParameter<T> {
         let length = self.buffer.get_length();
         Ok(&data[field::HIP_DH_GROUP_LIST_OFFSET.start
             ..field::HIP_DH_GROUP_LIST_OFFSET.start + length as usize])
+    }
+
+    /// Get DHGroupList Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes.
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
 
@@ -1537,9 +1564,9 @@ impl<T: AsRef<[u8]>> DHParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
@@ -1693,9 +1720,9 @@ impl<T: AsRef<[u8]>> CipherParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
@@ -1874,9 +1901,9 @@ impl<T: AsRef<[u8]>> HostIdParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
@@ -2062,6 +2089,20 @@ impl<T: AsRef<[u8]>> HITSuitListParameter<T> {
         Ok(&data
             [field::HIP_HIT_SUITS_OFFSET.start..field::HIP_HIT_SUITS_OFFSET.start + len as usize])
     }
+
+    /// Get HITSuitList Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes.
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner_ref().as_ref()[..self.get_length()]
+    }
 }
 
 impl<T: AsMut<[u8]> + AsRef<[u8]>> HITSuitListParameter<T> {
@@ -2190,9 +2231,9 @@ impl<T: AsRef<[u8]>> TransportListParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
@@ -2326,9 +2367,9 @@ impl<T: AsRef<[u8]>> MACParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
@@ -2494,6 +2535,12 @@ pub struct SignatureParameter<T> {
     buffer: HIPParameter<T>,
 }
 
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for SignatureParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a SignatureParameter<T>> for SignatureParameter<&'a [u8]> {
     fn fromtype(from: &'a SignatureParameter<T>) -> Result<Self> {
         let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
@@ -2576,9 +2623,9 @@ impl<T: AsRef<[u8]>> SignatureParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
@@ -3320,9 +3367,9 @@ impl<T: AsRef<[u8]>> EchoResponseSignedParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
@@ -3561,9 +3608,9 @@ impl<T: AsRef<[u8]>> ESPTransformParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }
@@ -3590,7 +3637,10 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ESPTransformParameter<T> {
         for _suit in suits.iter().step_by(2) {
             let subslice = &suits[counter..counter + 2];
             data[field::HIP_SUITS_LIST_OFFSET.start + field::HIP_SUITS_RESERVED_LENGTH + counter
-                ..field::HIP_SUITS_LIST_OFFSET.start + field::HIP_SUITS_RESERVED_LENGTH + counter + 2]
+                ..field::HIP_SUITS_LIST_OFFSET.start
+                    + field::HIP_SUITS_RESERVED_LENGTH
+                    + counter
+                    + 2]
                 .copy_from_slice(subslice);
             counter += 2;
         }
@@ -3666,7 +3716,7 @@ impl<T: AsRef<[u8]>> ESPInfoParameter<T> {
                 (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
             if len < param_len {
                 Err(HIPError::Bufferistooshort)
-            } else if param_len !=8 && param_len < field::HIP_ESP_INFO_NEW_SPI_OFFSET.end {
+            } else if param_len != 8 && param_len < field::HIP_ESP_INFO_NEW_SPI_OFFSET.end {
                 Err(HIPError::IncorrectHeaderLength)
             } else {
                 Ok(())
@@ -3714,9 +3764,9 @@ impl<T: AsRef<[u8]>> ESPInfoParameter<T> {
         len
     }
 
-    /// Returns the underlying buffer as a slice of bytes. 
+    /// Returns the underlying buffer as a slice of bytes.
     #[inline]
-    pub fn as_bytes(&self) -> &[u8]{
+    pub fn as_bytes(&self) -> &[u8] {
         &self.inner_ref().as_ref()[..self.get_length()]
     }
 }

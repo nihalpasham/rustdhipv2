@@ -39,9 +39,9 @@ pub struct HIPDaemon<'a> {
     hit_as_bytes: [u8; 16],
     hip_state_machine: StateMachine<'a>,
     keymat_map: Storage<'a, [u8; 800]>,
-    dh_map: Storage<'a, InitiatorDHKeys>,
+    dh_map: Storage<'a, DHKeys>,
     cipher_map: Storage<'a, Option<u8>>,
-    pubkey_map: Storage<'a, ResponderPubKey>,
+    pubkey_map: Storage<'a, SharedDHPubKey>,
     state_vars_map: Storage<'a, StateVariables>,
     key_info_map: Storage<'a, KeyInfo>,
     sa_map: SecurityAssociationDatabase<'a>,
@@ -58,9 +58,9 @@ impl<'a> HIPDaemon<'a> {
         hit_as_bytes: [u8; 16],
         state_store: &'a mut StateStore,
         keymat_store: &'a mut GenericValueStore<[u8; 800]>,
-        dh_map: &'a mut GenericValueStore<InitiatorDHKeys>,
+        dh_map: &'a mut GenericValueStore<DHKeys>,
         cipher_map: &'a mut GenericValueStore<Option<u8>>,
-        pubkey_map: &'a mut GenericValueStore<ResponderPubKey>,
+        pubkey_map: &'a mut GenericValueStore<SharedDHPubKey>,
         state_vars_map: &'a mut GenericValueStore<StateVariables>,
         key_info_map: &'a mut GenericValueStore<KeyInfo>,
         sa_map: &'a mut SARecordStore,
@@ -238,8 +238,8 @@ impl<'a> HIPDaemon<'a> {
                 // - `opaque` to [0; 2] via `init_puzzle_param` method upon allocation
                 let puzzle_param = match rhash_len {
                     0x20 => {
-                        let mut puzzle_param = PuzzleParameter::new_checked([0; 40])?;
-                        puzzle_param.init_puzzle_param();
+                        let mut puzzle_param = PuzzleParameter::new_checked_mut([0; 40])?;
+                        // puzzle_param.init_puzzle_param();
                         puzzle_param.set_k_value(0x10); // 16-bit difficulty
                         puzzle_param.set_lifetime(37);
                         (
@@ -248,8 +248,8 @@ impl<'a> HIPDaemon<'a> {
                         )
                     }
                     0x30 => {
-                        let mut puzzle_param = PuzzleParameter::new_checked([0; 56])?;
-                        puzzle_param.init_puzzle_param();
+                        let mut puzzle_param = PuzzleParameter::new_checked_mut([0; 56])?;
+                        // puzzle_param.init_puzzle_param();
                         puzzle_param.set_k_value(0x10); // 16-bit difficulty
                         puzzle_param.set_lifetime(37);
                         (
@@ -326,26 +326,26 @@ impl<'a> HIPDaemon<'a> {
                     self.dh_map.save(
                         &rhit,
                         &ihit,
-                        InitiatorDHKeys::EcdhP256(sk256.unwrap(), pk256.unwrap()),
+                        DHKeys::EcdhP256(sk256.unwrap(), pk256.unwrap()),
                     );
                 } else if dh_is_ecdh256 {
                     self.dh_map.save(
                         &ihit,
                         &rhit,
-                        InitiatorDHKeys::EcdhP256(sk256.unwrap(), pk256.unwrap()),
+                        DHKeys::EcdhP256(sk256.unwrap(), pk256.unwrap()),
                     );
                 } else if is_hit_smaller && dh_is_ecdh384 {
                     // 8 is the `dh identifier` for ECDHNISTP384
                     self.dh_map.save(
                         &rhit,
                         &ihit,
-                        InitiatorDHKeys::EcdhP384(sk384.unwrap(), pk384.unwrap()),
+                        DHKeys::EcdhP384(sk384.unwrap(), pk384.unwrap()),
                     );
                 } else if dh_is_ecdh384 {
                     self.dh_map.save(
                         &ihit,
                         &rhit,
-                        InitiatorDHKeys::EcdhP384(sk384.unwrap(), pk384.unwrap()),
+                        DHKeys::EcdhP384(sk384.unwrap(), pk384.unwrap()),
                     );
                 }
 
@@ -456,12 +456,12 @@ impl<'a> HIPDaemon<'a> {
                             .as_ref()
                             .iter()
                             .chain(dh_256.as_bytes().iter())
-                            .chain(cipher_param.inner_ref().as_ref().iter())
-                            .chain(esp_transform_param.inner_ref().as_ref().iter())
-                            .chain(hi_256.inner_ref().as_ref().iter())
-                            .chain(hit_suitlist_param.inner_ref().as_ref().iter())
-                            .chain(dhgroups_param.inner_ref().as_ref().iter())
-                            .chain(transfmt_param.inner_ref().as_ref().iter())
+                            .chain(cipher_param.as_bytes().iter())
+                            .chain(esp_transform_param.as_bytes().iter())
+                            .chain(hi_256.as_bytes().iter())
+                            .chain(hit_suitlist_param.as_bytes().iter())
+                            .chain(dhgroups_param.as_bytes().iter())
+                            .chain(transfmt_param.as_bytes().iter())
                         {
                             param_buf
                                 .push(*byte)
@@ -479,13 +479,13 @@ impl<'a> HIPDaemon<'a> {
                             .inner_ref()
                             .as_ref()
                             .iter()
-                            .chain(dh_384.inner_ref().as_ref().iter())
-                            .chain(cipher_param.inner_ref().as_ref().iter())
-                            .chain(esp_transform_param.inner_ref().as_ref().iter())
-                            .chain(hi_384.inner_ref().as_ref().iter())
-                            .chain(hit_suitlist_param.inner_ref().as_ref().iter())
-                            .chain(dhgroups_param.inner_ref().as_ref().iter())
-                            .chain(transfmt_param.inner_ref().as_ref().iter())
+                            .chain(dh_384.as_bytes().iter())
+                            .chain(cipher_param.as_bytes().iter())
+                            .chain(esp_transform_param.as_bytes().iter())
+                            .chain(hi_384.as_bytes().iter())
+                            .chain(hit_suitlist_param.as_bytes().iter())
+                            .chain(dhgroups_param.as_bytes().iter())
+                            .chain(transfmt_param.as_bytes().iter())
                         {
                             param_buf
                                 .push(*byte)
@@ -829,7 +829,7 @@ impl<'a> HIPDaemon<'a> {
                                         self.pubkey_map.save(
                                             &ihit,
                                             &rhit,
-                                            ResponderPubKey::Pk256(val),
+                                            SharedDHPubKey::Pk256(val),
                                         );
                                     }
                                 }
@@ -838,7 +838,7 @@ impl<'a> HIPDaemon<'a> {
                                         self.pubkey_map.save(
                                             &ihit,
                                             &rhit,
-                                            ResponderPubKey::Pk384(val),
+                                            SharedDHPubKey::Pk384(val),
                                         );
                                     }
                                 }
@@ -964,12 +964,12 @@ impl<'a> HIPDaemon<'a> {
                 // We cannot be mutate a buffer behind a reference. Note this is a design contract of this library.
                 // (not a limitation)
                 let mut temp = &mut copy_of_puzzle_param.ok_or_else(|| HIPError::Exhausted)?[..];
-                let mut reset_puzzle_param = PuzzleParameter::new_checked(temp)?;
+                let mut reset_puzzle_param = PuzzleParameter::new_checked_mut(temp)?;
                 match rhash_len {
                     0x20 => {
                         reset_puzzle_param.set_random(&[0; 0x20], rhash_len);
                         reset_puzzle_param.set_opaque(0u16);
-                        reset_puzzle_param.set_length(0u16);
+                        reset_puzzle_param.set_length(0u16);    
                     }
                     0x30 => {
                         reset_puzzle_param.set_random(&[0; 0x30], rhash_len);
@@ -1195,26 +1195,26 @@ impl<'a> HIPDaemon<'a> {
                     self.dh_map.save(
                         &rhit,
                         &ihit,
-                        InitiatorDHKeys::EcdhP256(sk256.unwrap(), pk256_i.unwrap()),
+                        DHKeys::EcdhP256(sk256.unwrap(), pk256_i.unwrap()),
                     );
                 } else if dh_is_ecdh256 {
                     self.dh_map.save(
                         &ihit,
                         &rhit,
-                        InitiatorDHKeys::EcdhP256(sk256.unwrap(), pk256_i.unwrap()),
+                        DHKeys::EcdhP256(sk256.unwrap(), pk256_i.unwrap()),
                     );
                 } else if is_hit_smaller && dh_is_ecdh384 {
                     // 8 is the `dh identifier` for ECDHNISTP384
                     self.dh_map.save(
                         &rhit,
                         &ihit,
-                        InitiatorDHKeys::EcdhP384(sk384.unwrap(), pk384_i.unwrap()),
+                        DHKeys::EcdhP384(sk384.unwrap(), pk384_i.unwrap()),
                     );
                 } else if dh_is_ecdh384 {
                     self.dh_map.save(
                         &ihit,
                         &rhit,
-                        InitiatorDHKeys::EcdhP384(sk384.unwrap(), pk384_i.unwrap()),
+                        DHKeys::EcdhP384(sk384.unwrap(), pk384_i.unwrap()),
                     );
                 }
 
@@ -1628,8 +1628,8 @@ impl<'a> HIPDaemon<'a> {
                     },
                 }
 
-                let current_r1pkt_len = hip_i2_packet.packet.get_header_length();
-                let pkt_len = 8 * (1 + current_r1pkt_len as usize) + &param_buf.len();
+                let current_i2pkt_len = hip_i2_packet.packet.get_header_length();
+                let pkt_len = (8 * current_i2pkt_len as usize) + &param_buf.len();
                 hip_i2_packet.packet.set_header_length((pkt_len / 8) as u8);
                 let mut hmac_bytes: Vec<u8, U512> = Vec::new();
                 for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
@@ -1654,6 +1654,8 @@ impl<'a> HIPDaemon<'a> {
                 let (mac256_param, mac384_param) = match (mac256_param, mac384_param) {
                     (Some(mut val), None) => {
                         val.set_hmac(&SHA256HMAC::hmac_256(&hmac_bytes[..], hmac_key));
+                        hip_debug!("hmac_bytes: {:?}", &hmac_bytes[..]);
+                        hip_debug!("hmac_bytes: {:?}", hmac_key);
                         (Some(val), None)
                     }
                     (None, Some(mut val)) => {
@@ -1669,11 +1671,13 @@ impl<'a> HIPDaemon<'a> {
                 let signer_tuple = match self.privkey {
                     Some(val) if val.len() == 0x20 => {
                         let mut signature_param = SignatureParameter::new_checked([0; 72])?;
+                        signature_param.init_signatureparameter();
                         let signer = ECDSASHA256Signature(val.try_into().unwrap(), [0; 64]);
                         (Some((signature_param, signer)), None)
                     }
                     Some(val) if val.len() == 0x30 => {
                         let mut signature_param = SignatureParameter::new_checked([0; 104])?;
+                        signature_param.init_signatureparameter();
                         let signer = ECDSASHA384Signature(
                             val.try_into().unwrap(),
                             EncodedPointP384::identity(),
@@ -1684,6 +1688,9 @@ impl<'a> HIPDaemon<'a> {
                     None => unreachable!(),
                 };
 
+                // Reset R1 header length
+                hip_i2_packet.packet.set_header_length((HIP_HEADER_LENGTH as u8 - 8) / 8);
+
                 let data_tobe_signed: Result<Vec<u8, _>> = match (mac256_param, mac384_param) {
                     (Some(mac256_param), None) => {
                         for byte in mac256_param.inner_ref().as_ref().iter() {
@@ -1691,9 +1698,9 @@ impl<'a> HIPDaemon<'a> {
                                 .push(*byte)
                                 .map_err(|_| HIPError::Bufferistooshort)?;
                         }
-                        let current_r1pkt_len = hip_r1_packet.packet.get_header_length();
-                        let pkt_len = 8 * (1 + current_r1pkt_len as usize) + &param_buf.len();
-                        hip_r1_packet.packet.set_header_length((pkt_len / 8) as u8);
+                        let current_i2pkt_len = hip_i2_packet.packet.get_header_length();
+                        let pkt_len = (8 * current_i2pkt_len as usize) + &param_buf.len();
+                        hip_i2_packet.packet.set_header_length((pkt_len / 8) as u8);
                         let mut s: Vec<u8, U512> = Vec::new();
                         for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
                             .iter()
@@ -1709,9 +1716,9 @@ impl<'a> HIPDaemon<'a> {
                                 .push(*byte)
                                 .map_err(|_| HIPError::Bufferistooshort)?;
                         }
-                        let current_r1pkt_len = hip_r1_packet.packet.get_header_length();
-                        let pkt_len = 8 * (1 + current_r1pkt_len as usize) + &param_buf.len();
-                        hip_r1_packet.packet.set_header_length((pkt_len / 8) as u8);
+                        let current_i2pkt_len = hip_i2_packet.packet.get_header_length();
+                        let pkt_len = (8 * current_i2pkt_len as usize) + &param_buf.len();
+                        hip_i2_packet.packet.set_header_length((pkt_len / 8) as u8);
                         let mut s: Vec<u8, U512> = Vec::new();
                         for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
                             .iter()
@@ -1726,9 +1733,11 @@ impl<'a> HIPDaemon<'a> {
 
                 let signature_param = match signer_tuple {
                     (Some((mut signature_param, signer)), None) => {
-                        let signature = signer.sign(&data_tobe_signed?[..]);
+                        let signature = signer.sign(&data_tobe_signed.clone()?[..]);
                         signature_param.set_signature_algorithm(0x7);
                         signature_param.set_signature(&signature?[..]);
+                        hip_debug!("data_tobe_signed: {:?}", &data_tobe_signed?[..]);
+                        hip_debug!("signature: {:?}", &signature?[..]);
                         (
                             HIPParamsTypes::SignatureParam(signature_param),
                             HIPParamsTypes::Default,
@@ -2059,8 +2068,8 @@ impl<'a> HIPDaemon<'a> {
                 let mut echo_signed = None;
                 let mut mac_param = None;
                 let mut signature_param = None;
-                let mut responder_pubkey256 = Some(Ok([0; 64]));
-                let mut responder_pubkey384 = Some(Ok([0; 96]));
+                let mut initiator_pubkey256 = Some(Ok([0; 64]));
+                let mut initiator_pubkey384 = Some(Ok([0; 96]));
                 // let mut echo_request_unisgned_opaque_data = None;
                 let mut iv_length = 0;
                 let mut encrypted_param = None;
@@ -2076,7 +2085,7 @@ impl<'a> HIPDaemon<'a> {
                     .set_senders_hit(&hip_packet.get_senders_hit());
                 hip_i2_packet
                     .packet
-                    .set_receivers_hit(&hip_packet.get_receivers_hit());                
+                    .set_receivers_hit(&hip_packet.get_receivers_hit());
                 hip_i2_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
                 hip_i2_packet.packet.set_version(HIP_VERSION as u8);
 
@@ -2115,11 +2124,11 @@ impl<'a> HIPDaemon<'a> {
                         if Some(hi_param.map(|param| param.get_algorithm()))
                             == Some(Some(Ok(0x7 as u16)))
                         {
-                            let responder_hi = hi_param.map(|param| param.get_host_id());
+                            let initiator_hi = hi_param.map(|param| param.get_host_id());
                             let oga = HIT::get_responders_oga_id(&ihit);
-                            hip_debug!("Responder's OGA ID {:?}", oga);
-                            hip_debug!("Responder HI: {:?}", responder_hi);
-                            let hi = match responder_hi {
+                            hip_debug!("Initiator's OGA ID {:?}", oga);
+                            hip_debug!("Initiator's HI: {:?}", initiator_hi);
+                            let hi = match initiator_hi {
                                 Some(Ok(val)) => val,
                                 _ => {
                                     hip_debug!("HostID missing");
@@ -2128,28 +2137,28 @@ impl<'a> HIPDaemon<'a> {
                             };
                             match hi[0..2] {
                                 [0, 1] => {
-                                    let responders_hit = HIT::compute_hit::<82>(hi, oga);
-                                    hip_debug!("Responder's computed HIT: {:?}", responders_hit);
+                                    let initiators_hit = HIT::compute_hit::<82>(hi, oga);
+                                    hip_debug!("Initiator's computed HIT: {:?}", initiators_hit);
                                     hip_debug!("Initiator's actual HIT: {:?}", &ihit);
                                     hip_debug!("own HIT: {:?}", self.hit_as_bytes);
-                                    if !Utils::hits_equal(&ihit, &responders_hit) {
+                                    if !Utils::hits_equal(&ihit, &initiators_hit) {
                                         hip_trace!("Invalid HIT");
                                         panic!(
                                             "Invalid HIT {:?}, responder_hit: {:?}",
-                                            &ihit, &responders_hit
+                                            &ihit, &initiators_hit
                                         );
                                     }
                                 }
                                 [0, 2] => {
-                                    let responders_hit = HIT::compute_hit::<114>(hi, oga);
-                                    hip_debug!("Responder's computed HIT: {:?}", responders_hit);
+                                    let initiators_hit = HIT::compute_hit::<114>(hi, oga);
+                                    hip_debug!("Initiator's computed HIT: {:?}", initiators_hit);
                                     hip_debug!("Initiator's actual HIT: {:?}", &ihit);
                                     hip_debug!("own HIT: {:?}", self.hit_as_bytes);
-                                    if !Utils::hits_equal(&ihit, &responders_hit) {
+                                    if !Utils::hits_equal(&ihit, &initiators_hit) {
                                         hip_trace!("Invalid HIT");
                                         panic!(
                                             "Invalid HIT {:?}, responder_hit: {:?}",
-                                            &ihit, &responders_hit
+                                            &ihit, &initiators_hit
                                         );
                                     }
                                 }
@@ -2158,27 +2167,27 @@ impl<'a> HIPDaemon<'a> {
                             // Extract publickey from HostId
                             match hi[0..2] {
                                 [0, 1] => {
-                                    responder_pubkey256 = Some(
+                                    initiator_pubkey256 = Some(
                                         hi[2..].try_into().map_err(|_| HIPError::IncorrectLength),
                                     );
-                                    responder_pubkey384 = None;
+                                    initiator_pubkey384 = None;
                                 }
                                 [0, 2] => {
-                                    responder_pubkey384 = Some(
+                                    initiator_pubkey384 = Some(
                                         hi[2..].try_into().map_err(|_| HIPError::IncorrectLength),
                                     );
-                                    responder_pubkey256 = None;
+                                    initiator_pubkey256 = None;
                                 }
                                 _ => unimplemented!(),
                             }
-                            // Save responder pubkey to the pubkey_map
-                            match (responder_pubkey256, responder_pubkey384) {
+                            // Save initiator pubkey to the pubkey_map
+                            match (initiator_pubkey256, initiator_pubkey384) {
                                 (Some(val), None) => {
                                     if let Ok(val) = val {
                                         self.pubkey_map.save(
                                             &ihit,
                                             &rhit,
-                                            ResponderPubKey::Pk256(val),
+                                            SharedDHPubKey::Pk256(val),
                                         );
                                     }
                                 }
@@ -2187,7 +2196,7 @@ impl<'a> HIPDaemon<'a> {
                                         self.pubkey_map.save(
                                             &ihit,
                                             &rhit,
-                                            ResponderPubKey::Pk384(val),
+                                            SharedDHPubKey::Pk384(val),
                                         );
                                     }
                                 }
@@ -2213,11 +2222,11 @@ impl<'a> HIPDaemon<'a> {
                         esp_transform_param = Some(val);
                     }
                     HIPParamsTypes::MACParam(val) => {
-                        hip_debug!("Cipher Parameter");
+                        hip_debug!("MAC Parameter");
                         mac_param = Some(val);
                     }
                     HIPParamsTypes::EchoResponseSignedParam(val) => {
-                        hip_debug!("ESP Transform Parameter");
+                        hip_debug!("Echo Response Signed Parameter");
                         echo_signed = Some(val);
                     }
                     _ => (),
@@ -2244,7 +2253,7 @@ impl<'a> HIPDaemon<'a> {
 
                 let oga_id = HIT::get_responders_oga_id(&rhit);
                 let oga = oga_id << 4;
-                match oga_id {
+                match oga {
                     0x10 | 0x20 | 0x30 => {}
                     _ => {
                         hip_debug!("Unsupported HIT suit");
@@ -2285,20 +2294,20 @@ impl<'a> HIPDaemon<'a> {
 
                 // Get DH secret keys from dh_map
                 let mut dh_alg_id = 0;
-                let mut sk_i256 = None;
-                let mut sk_i384 = None;
+                let mut sk_r256 = None;
+                let mut sk_r384 = None;
 
                 if is_hit_smaller {
                     let temp = self.dh_map.get(&rhit, &ihit)?;
                     match temp {
                         Some(val) => match val {
-                            InitiatorDHKeys::EcdhP256(sk256, pk256) => {
+                            DHKeys::EcdhP256(sk256, pk256) => {
                                 dh_alg_id = 0x7;
-                                sk_i256 = Some(sk256)
+                                sk_r256 = Some(sk256)
                             }
-                            InitiatorDHKeys::EcdhP384(sk384, pk384) => {
+                            DHKeys::EcdhP384(sk384, pk384) => {
                                 dh_alg_id = 0x8;
-                                sk_i384 = Some(sk384)
+                                sk_r384 = Some(sk384)
                             }
                             _ => unimplemented!(),
                         },
@@ -2308,13 +2317,13 @@ impl<'a> HIPDaemon<'a> {
                     let temp = self.dh_map.get(&ihit, &rhit)?;
                     match temp {
                         Some(val) => match val {
-                            InitiatorDHKeys::EcdhP256(sk256, pk256) => {
+                            DHKeys::EcdhP256(sk256, pk256) => {
                                 dh_alg_id = 0x7;
-                                sk_i256 = Some(sk256)
+                                sk_r256 = Some(sk256)
                             }
-                            InitiatorDHKeys::EcdhP384(sk384, pk384) => {
+                            DHKeys::EcdhP384(sk384, pk384) => {
                                 dh_alg_id = 0x8;
-                                sk_i384 = Some(sk384)
+                                sk_r384 = Some(sk384)
                             }
                             _ => unimplemented!(),
                         },
@@ -2323,30 +2332,30 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 // Get responder public key and compute shared_secret
-                let pubkey_r = dh_param
+                let pubkey_i = dh_param
                     .ok_or_else(|| HIPError::FieldNotSet)?
                     .get_public_value()?;
-                let (ss256, ss384) = match (sk_i256, sk_i384) {
+                let (ss256, ss384) = match (sk_r256, sk_r384) {
                     (Some(sk), None) => {
                         let ss256 = ECDHNISTP256::generate_shared_secret(
                             &sk,
-                            &PkP256::from_bytes(pubkey_r)?,
+                            &PkP256::from_bytes(pubkey_i)?,
                         )?;
                         (Some(ss256), None)
                     }
                     (None, Some(sk)) => {
                         let ss384 = ECDHNISTP384::<48>::generate_shared_secret(
                             &sk,
-                            &PkP384::from_bytes(pubkey_r)?,
+                            &PkP384::from_bytes(pubkey_i)?,
                         )?;
                         (None, Some(ss384))
                     }
                     _ => unimplemented!(),
                 };
                 if ss256.is_some() {
-                    hip_debug!("Secret key {:?}", ss256);
+                    hip_debug!("Secret key {:?}", ss256.clone().unwrap().to_bytes());
                 } else if ss384.is_some() {
-                    hip_debug!("Secret key {:?}", ss384);
+                    hip_debug!("Secret key {:?}", ss384.clone().unwrap().to_bytes());
                 }
 
                 // A 64 byte salt for the HBKDF from the concatenated irandom + jrandom values
@@ -2409,7 +2418,7 @@ impl<'a> HIPDaemon<'a> {
                     return Err(HIPError::FieldNotSet);
                 }
 
-                let selected_esp_transform = esp_transform_param.unwrap().get_esp_suits()?[0];
+                let selected_esp_transform = esp_transform_param.unwrap().get_esp_suits()?[3];
 
                 initiators_spi = Some(
                     esp_info_param
@@ -2492,11 +2501,11 @@ impl<'a> HIPDaemon<'a> {
                     let hi_param = HostIdParameter::new_checked(&host_id_data[..data_len])?;
 
                     if hi_param.get_algorithm()? == 0x7 {
-                        let responder_hi = hi_param.get_host_id();
+                        let initiator_hi = hi_param.get_host_id();
                         let oga = HIT::get_responders_oga_id(&ihit);
                         hip_debug!("Responder's OGA ID {:?}", oga);
-                        hip_debug!("Responder HI: {:?}", responder_hi);
-                        let hi = match responder_hi {
+                        hip_debug!("Responder HI: {:?}", initiator_hi);
+                        let hi = match initiator_hi {
                             Ok(val) => val,
                             _ => {
                                 hip_debug!("HostID missing");
@@ -2505,28 +2514,28 @@ impl<'a> HIPDaemon<'a> {
                         };
                         match hi[0..2] {
                             [0, 1] => {
-                                let responders_hit = HIT::compute_hit::<80>(hi, oga);
-                                hip_debug!("Responder's HIT: {:?}", responders_hit);
-                                hip_debug!("Initiator's HIT: {:?}", &ihit);
-                                hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
-                                if !Utils::hits_equal(&ihit, &responders_hit) {
+                                let initiators_hit = HIT::compute_hit::<82>(hi, oga);
+                                hip_debug!("Initiator's computed HIT: {:?}", initiators_hit);
+                                hip_debug!("Initiator's actual HIT: {:?}", &ihit);
+                                hip_debug!("own HIT: {:?}", self.hit_as_bytes);
+                                if !Utils::hits_equal(&ihit, &initiators_hit) {
                                     hip_trace!("Invalid HIT");
                                     panic!(
                                         "Invalid HIT {:?}, responder_hit: {:?}",
-                                        &ihit, &responders_hit
+                                        &ihit, &initiators_hit
                                     );
                                 }
                             }
                             [0, 2] => {
-                                let responders_hit = HIT::compute_hit::<112>(hi, oga);
-                                hip_debug!("Responder's HIT: {:?}", responders_hit);
-                                hip_debug!("Initiator's HIT: {:?}", &ihit);
-                                hip_debug!("HIPDaemon's HIT: {:?}", self.hit_as_bytes);
-                                if !Utils::hits_equal(&ihit, &responders_hit) {
+                                let initiators_hit = HIT::compute_hit::<114>(hi, oga);
+                                hip_debug!("Initiator's computed HIT: {:?}", initiators_hit);
+                                hip_debug!("Initiator's actual HIT: {:?}", &ihit);
+                                hip_debug!("own HIT: {:?}", self.hit_as_bytes);
+                                if !Utils::hits_equal(&ihit, &initiators_hit) {
                                     hip_trace!("Invalid HIT");
                                     panic!(
-                                        "Invalid HIT {:?}, responder_hit: {:?}",
-                                        &ihit, &responders_hit
+                                        "Invalid HIT {:?}, initiator_hit: {:?}",
+                                        &ihit, &initiators_hit
                                     );
                                 }
                             }
@@ -2539,13 +2548,14 @@ impl<'a> HIPDaemon<'a> {
                         // Extract publickey from HostId
                         match hi[0..2] {
                             [0, 1] => {
-                                responder_pubkey256 =
+                                initiator_pubkey256 =
                                     Some(hi[2..].try_into().map_err(|_| HIPError::IncorrectLength));
-                                // responder_pubkey256 = Err(HIP);
+                                initiator_pubkey384 = None;
                             }
                             [0, 2] => {
-                                responder_pubkey384 =
+                                initiator_pubkey384 =
                                     Some(hi[2..].try_into().map_err(|_| HIPError::IncorrectLength));
+                                initiator_pubkey256 = None;
                             }
                             _ => {
                                 hip_debug!("Invalid remote Host Identity");
@@ -2557,8 +2567,12 @@ impl<'a> HIPDaemon<'a> {
 
                 // Fill out an I2 packet
                 let mut hip_i2_packet = I2Packet::<[u8; 1024]>::new_i2packet()?;
-                hip_i2_packet.packet.set_senders_hit(&rhit);
-                hip_i2_packet.packet.set_receivers_hit(&ihit);
+                hip_i2_packet
+                    .packet
+                    .set_senders_hit(&hip_packet.get_senders_hit());
+                hip_i2_packet
+                    .packet
+                    .set_receivers_hit(&hip_packet.get_receivers_hit());
                 hip_i2_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
                 hip_i2_packet.packet.set_version(HIP_VERSION as u8);
 
@@ -2632,7 +2646,7 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 let current_r1pkt_len = hip_i2_packet.packet.get_header_length();
-                let pkt_len = 8 * (1 + current_r1pkt_len as usize) + &param_buf.len();
+                let pkt_len = (8 * current_r1pkt_len as usize) + &param_buf.len();
                 hip_i2_packet.packet.set_header_length((pkt_len / 8) as u8);
                 let mut hmac_bytes: Vec<u8, U512> = Vec::new();
                 for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
@@ -2659,6 +2673,8 @@ impl<'a> HIPDaemon<'a> {
                             != mac_param.ok_or_else(|| HIPError::FieldNotSet)?.get_hmac()?
                         {
                             hip_debug!("Invalid HMAC. Dropping the packet");
+                            hip_debug!("hmac_bytes: {:?}", &hmac_bytes[..]);
+                            hip_debug!("hmac_bytes: {:?}", hmac_key);
                         }
                     }
                     HMACTypes::HMAC384(mac) => {
@@ -2671,21 +2687,26 @@ impl<'a> HIPDaemon<'a> {
                     _ => unimplemented!(),
                 }
 
+                // Reset i2 packet header length for signature verification
+                // hip_i2_packet.packet.set_header_length((HIP_HEADER_LENGTH as u8 - 8) / 8);
                 // Verify signature of I2 Packet
-                let current_r1pkt_len = hip_i2_packet.packet.get_header_length();
-                let pkt_len = current_r1pkt_len as usize * 8 + &param_buf.len();
+                // let current_r1pkt_len = hip_i2_packet.packet.get_header_length();
+                let pkt_len = (8 * current_r1pkt_len as usize)
+                    + &param_buf.len()
+                    + mac_param.ok_or_else(|| HIPError::FieldNotSet)?.get_length();
                 hip_i2_packet.packet.set_header_length((pkt_len / 8) as u8);
                 let mut bytes_to_verify: Vec<u8, U512> = Vec::new();
                 for byte in hip_i2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
                     .iter()
                     .chain(param_buf[..].iter())
+                    .chain(mac_param.ok_or_else(|| HIPError::FieldNotSet)?.as_bytes())
                 {
                     bytes_to_verify
                         .push(*byte)
                         .map_err(|_| HIPError::Bufferistooshort)?;
                 }
 
-                match (responder_pubkey256, responder_pubkey384) {
+                match (initiator_pubkey256, initiator_pubkey384) {
                     (Some(val), None) => {
                         if let Ok(pubkey_256) = val {
                             let verifier = ECDSASHA256Signature([0; 32], pubkey_256);
@@ -2693,13 +2714,17 @@ impl<'a> HIPDaemon<'a> {
                                 &bytes_to_verify[..],
                                 signature_param
                                     .ok_or_else(|| HIPError::SignatureError)?
-                                    .inner_ref()
-                                    .as_ref(),
+                                    .get_signature()?,
                             );
                             if !verified? {
-                                hip_trace!("Invalid signature in R1 packet. Dropping the packet");
+                                hip_trace!("Invalid signature in I2 packet. Dropping the packet");
+                                hip_debug!("bytes_to_verify: {:?}", &bytes_to_verify[..]);
+                                hip_debug!(
+                                    "signature: {:?}",
+                                    signature_param.unwrap().get_signature()?
+                                );
                             } else {
-                                hip_debug!("Signature is correct");
+                                hip_debug!("Signature verified!");
                             }
                         }
                     }
@@ -2714,13 +2739,17 @@ impl<'a> HIPDaemon<'a> {
                                 &bytes_to_verify[..],
                                 signature_param
                                     .ok_or_else(|| HIPError::SignatureError)?
-                                    .inner_ref()
-                                    .as_ref(),
+                                    .get_signature()?,
                             );
                             if !verified? {
-                                hip_trace!("Invalid signature in R1 packet. Dropping the packet");
+                                hip_debug!("Invalid signature in I2 packet. Dropping the packet");
+                                hip_debug!("bytes_to_verify: {:?}", &bytes_to_verify[..]);
+                                hip_debug!(
+                                    "signature: {:?}",
+                                    signature_param.unwrap().get_signature()?
+                                );
                             } else {
-                                hip_debug!("Signature is correct");
+                                hip_debug!("Signature verified!");
                             }
                         }
                     }
@@ -2767,27 +2796,27 @@ impl<'a> HIPDaemon<'a> {
                 // HIP Mac2 Parameter
                 let (mut mac2_256_param, mut mac2_384_param) = match hmac_alg {
                     0x1 => {
-                        let mut mac2_param = MAC2Parameter::new_checked([0; 32 + 4])?;
+                        let mut mac2_param = MAC2Parameter::new_checked([0; 32 + 8])?;
                         mac2_param.init_mac2paramter_param();
                         (Some(mac2_param), None)
                     }
                     0x2 => {
-                        let mut mac2_param = MAC2Parameter::new_checked([0; 48 + 4])?;
+                        let mut mac2_param = MAC2Parameter::new_checked([0; 48 + 8])?;
                         mac2_param.init_mac2paramter_param();
                         (None, Some(mac2_param))
                     }
                     _ => unimplemented!(),
                 };
 
-                let byte_len = hip_r2_packet.packet.get_header_length() * 8 + 8;
+                let byte_len = (1 + hip_r2_packet.packet.get_header_length() as usize) * 8;
                 if mac2_256_param.is_some() {
                     mac2_256_param.unwrap().set_hmac2(&SHA256HMAC::hmac_256(
-                        &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize],
+                        &hip_r2_packet.inner_ref().as_ref()[..byte_len],
                         hmac_key,
                     ));
                 } else if mac2_384_param.is_some() {
                     mac2_384_param.unwrap().set_hmac2(&SHA384HMAC::hmac_384(
-                        &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize],
+                        &hip_r2_packet.inner_ref().as_ref()[..byte_len],
                         hmac_key,
                     ));
                 }
@@ -2798,13 +2827,16 @@ impl<'a> HIPDaemon<'a> {
                     Some(val) if val.len() == 0x20 => {
                         let mut signature_param = Signature2Parameter::new_checked([0; 72])?;
                         signature_param.init_signature2parameter_param();
-                        let signer = ECDSASHA256Signature([0; 32], [0; 64]);
+                        let signer = ECDSASHA256Signature(val.try_into().unwrap(), [0; 64]);
                         (Some((signature_param, signer)), None)
                     }
                     Some(val) if val.len() == 0x30 => {
                         let mut signature_param = Signature2Parameter::new_checked([0; 104])?;
                         signature_param.init_signature2parameter_param();
-                        let signer = ECDSASHA384Signature([0; 48], EncodedPointP384::identity());
+                        let signer = ECDSASHA384Signature(
+                            val.try_into().unwrap(),
+                            EncodedPointP384::identity(),
+                        );
                         (None, Some((signature_param, signer)))
                     }
                     Some(_) => unimplemented!(),
@@ -2815,28 +2847,28 @@ impl<'a> HIPDaemon<'a> {
                 let data_tobe_signed: Result<Vec<u8, _>> = match (mac2_256_param, mac2_384_param) {
                     (Some(mac2_256_param), None) => {
                         let mut s: Vec<u8, U512> = Vec::new();
-                        for byte in hip_r2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
+                        for byte in hip_r2_packet.inner_ref().as_ref()[..byte_len]
                             .iter()
                             .chain(mac2_256_param.inner_ref().as_ref().iter())
                         {
                             s.push(*byte).map_err(|_| HIPError::Bufferistooshort)?;
                         }
                         let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
-                        let pkt_len = current_r1pkt_len as usize * 8
+                        let pkt_len = (current_r1pkt_len as usize * 8)
                             + mac2_256_param.inner_ref().as_ref().len();
                         hip_r2_packet.packet.set_header_length((pkt_len / 8) as u8);
                         Ok(s)
                     }
                     (None, Some(mac2_384_param)) => {
                         let mut s: Vec<u8, U512> = Vec::new();
-                        for byte in hip_r2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
+                        for byte in hip_r2_packet.inner_ref().as_ref()[..byte_len]
                             .iter()
                             .chain(mac2_384_param.inner_ref().as_ref().iter())
                         {
                             s.push(*byte).map_err(|_| HIPError::Bufferistooshort)?;
                         }
                         let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
-                        let pkt_len = current_r1pkt_len as usize * 8
+                        let pkt_len = (current_r1pkt_len as usize * 8)
                             + mac2_384_param.inner_ref().as_ref().len();
                         hip_r2_packet.packet.set_header_length((pkt_len / 8) as u8);
                         Ok(s)
@@ -2958,6 +2990,20 @@ impl<'a> HIPDaemon<'a> {
                         .is_closed()
                 {
                     hip_state = hip_state.map(|s| s.r2_sent());
+                    // Update HIP StateMachine
+                    let mut old_hip_state = self.hip_state_machine.get_mut(&rhit, &ihit)?;
+                    match (&mut old_hip_state, hip_state) {
+                        (Some(old_state), Some(new_state)) => **old_state = new_state,
+                        (_, _) => {
+                            hip_debug!(
+                                "Invalid states reached, prev: {:?}, new: {:?}",
+                                old_hip_state,
+                                hip_state
+                            );
+                            return Err(HIPError::InvalidState);
+                        }
+                    }
+
                     if let HeaplessStringTypes::U32(val) = dst_str {
                         hip_debug!(
                             "Sending R2 packet to {:?}, bytes sent {:?}",
@@ -3007,7 +3053,7 @@ impl<'a> HIPDaemon<'a> {
                             &keymat[..keymat_len_octets as usize],
                             keymat_index,
                             0x1, // hmac256 id
-                            0x4, // aes128 id
+                            0x4, // aes256 id
                             &ihit,
                             &rhit,
                         )?;
@@ -3058,7 +3104,7 @@ impl<'a> HIPDaemon<'a> {
                             &keymat[..keymat_len_octets as usize],
                             keymat_index,
                             0x1, // hmac256 id
-                            0x4, // aes128 id
+                            0x4, // aes256 id
                             &ihit,
                             &rhit,
                         )?;
@@ -3118,7 +3164,7 @@ impl<'a> HIPDaemon<'a> {
                         .ok_or_else(|| HIPError::__Nonexhaustive)?
                         .is_closed()
                 {
-                    hip_debug!("Dropping the packet ");
+                    hip_debug!("Dropping the packet {:?}", hip_state);
                 }
 
                 hip_debug!("Got R2 Packet");
@@ -3275,11 +3321,11 @@ impl<'a> HIPDaemon<'a> {
                 // Get responder pubkey from our pubkey_map
                 let pubkey_len = match responder_pubkey {
                     Some(val) => match val {
-                        ResponderPubKey::Pk256(val) => {
+                        SharedDHPubKey::Pk256(val) => {
                             responder_pubkey256 = *val;
                             0x20
                         }
-                        ResponderPubKey::Pk384(val) => {
+                        SharedDHPubKey::Pk384(val) => {
                             responder_pubkey384 = *val;
                             0x30
                         }
@@ -3576,7 +3622,7 @@ impl<'a> HIPDaemon<'a> {
 
             if is_hit_smaller {
                 // Update HIP StateMachine
-                let mut old_hip_state = self.hip_state_machine.get_mut(&rhit, &ihit)?;
+                let mut old_hip_state = self.hip_state_machine.get_mut(&ihit, &rhit)?;
                 match (&mut old_hip_state, hip_state) {
                     (Some(old_state), Some(new_state)) => **old_state = new_state,
                     (_, _) => {

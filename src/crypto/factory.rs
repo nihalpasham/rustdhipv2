@@ -61,16 +61,16 @@ pub struct ESPTransformFactory;
 impl ESPTransformFactory {
     pub fn get(transform: u8) -> (CipherTypes, HMACTypes) {
         match transform {
-            0x7 => return (CipherTypes::NULL, HMACTypes::HMAC256(SHA256HMAC)), /* NULL cipher */
+            0x0007 => return (CipherTypes::NULL, HMACTypes::HMAC256(SHA256HMAC)), /* NULL cipher */
             // with SHA256
             // HMAC
-            0x8 => {
+            0x0008 => {
                 return (
                     CipherTypes::AES128(AES128CBCCipher),
                     HMACTypes::HMAC256(SHA256HMAC),
                 )
             } // # AES128CBC with SHA256 HMAC
-            0x9 => {
+            0x0009 => {
                 return (
                     CipherTypes::AES256(AES256CBCCipher),
                     HMACTypes::HMAC256(SHA256HMAC),

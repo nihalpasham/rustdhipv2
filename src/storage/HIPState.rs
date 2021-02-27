@@ -691,16 +691,16 @@ impl KeyInfo {
     }
 }
 
-/// Enum to represent responder (i.e. remote) public keys
+/// Enum to represent shared (initiator or responder .e. remote) public keys
 #[derive(Debug, Copy, Clone)]
-pub enum ResponderPubKey {
+pub enum SharedDHPubKey {
     Pk256([u8; 64]),
     Pk384([u8; 96]),
 }
 
-/// Enum to represent the Initiator's keys (i.e. public and private keys)
+/// Enum to represent DH keys (i.e. public and private keys)
 #[derive(Clone)]
-pub enum InitiatorDHKeys {
+pub enum DHKeys {
     EcdhP256(SkP256, PkP256),
     EcdhP384(SkP384, PkP384),
     Default,

@@ -274,7 +274,7 @@ impl Utils {
         rhit: &[u8],
     ) -> Result<(&'a [u8], &'a [u8])> {
         let mut offset = keymat_index;
-        if ihit.len() != 0x16 || rhit.len() != 0x16 {
+        if ihit.len() != 0x10 || rhit.len() != 0x10 {
             return Err(HIPError::IncorrectLength);
         }
 
