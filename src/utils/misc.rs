@@ -299,7 +299,7 @@ impl Utils {
 
         let aes_key = &keymat[offset as usize..(offset + cipher_key_len) as usize];
         let hmac_key = &keymat
-            [(offset + cipher_key_len) as usize..(offset + cipher_key_len + hmac_len) as usize];
+            [(offset + cipher_key_len) as usize..offset as usize + cipher_key_len as usize + hmac_len as usize];
 
         Ok((aes_key, hmac_key))
     }

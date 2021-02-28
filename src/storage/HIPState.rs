@@ -322,7 +322,8 @@ impl<'a> StateMachine<'a> {
             .get_mut(&HeaplessString { s: key.clone() })
             .is_none()
         {
-            Ok(None)
+            self.add_new_key(key.clone());
+            Ok(self.hip_states.map_store.get_mut(&HeaplessString { s: key }))
         } else {
             Ok(self.hip_states.map_store.get_mut(&HeaplessString { s: key }))
         }

@@ -240,19 +240,18 @@ impl<'a, T: AsRef<[u8]> + ?Sized> HIPPacket<&'a T> {
                     )
                 }
                 field::HIP_SEQ_TYPE => {
-                    param_list[idx] = HIPParamsTypes::SequenceParam(SequenceParameter::new(
-                        HIPParameter::new_unchecked(param_data),
-                    ))
+                    param_list[idx] = HIPParamsTypes::SequenceParam(
+                        SequenceParameter::new_checked(param_data).unwrap(),
+                    )
                 }
                 field::HIP_ACK_TYPE => {
-                    param_list[idx] = HIPParamsTypes::AckParam(AckParameter::new(
-                        HIPParameter::new_unchecked(param_data),
-                    ))
+                    param_list[idx] =
+                        HIPParamsTypes::AckParam(AckParameter::new_checked(param_data).unwrap())
                 }
                 field::HIP_ENCRYPTED_TYPE => {
-                    param_list[idx] = HIPParamsTypes::EncryptedParam(EncryptedParameter::new(
-                        HIPParameter::new_unchecked(param_data),
-                    ))
+                    param_list[idx] = HIPParamsTypes::EncryptedParam(
+                        EncryptedParameter::new_checked(param_data).unwrap(),
+                    )
                 }
                 field::HIP_NOTIFICATION_TYPE => {
                     param_list[idx] = HIPParamsTypes::NotificationParam(NotificationParameter::new(
@@ -857,7 +856,8 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for R1CounterParam<T> {
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a R1CounterParam<T>> for R1CounterParam<&'a [u8]> {
     fn fromtype(from: &'a R1CounterParam<T>) -> Result<Self> {
-        R1CounterParam::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        R1CounterParam::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -975,7 +975,8 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for PuzzleParameter<T> {
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a PuzzleParameter<T>> for PuzzleParameter<&'a [u8]> {
     fn fromtype(from: &'a PuzzleParameter<T>) -> Result<Self> {
-        PuzzleParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        PuzzleParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -1077,13 +1078,12 @@ impl<T: AsRef<[u8]>> PuzzleParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> PuzzleParameter<T> {
-
     /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
-    /// Returns a mutable `Puzzle` parameter (i.e. underlying buffer is mutable).
+    /// Returns an initialized `Puzzle` parameter whose underlying buffer can be mutated.
     /// [new_unchecked]: #method.new_unchecked
     /// [check_len]: #method.check_len
-    pub fn new_checked_mut(buffer: T) -> Result<PuzzleParameter<T>> {
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
         let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
         packet.check_len()?;
         packet.init_puzzle_param();
@@ -1265,6 +1265,18 @@ impl<T: AsRef<[u8]>> SolutionParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> SolutionParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `Solution` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_solution_param();
+        Ok(packet)
+    }
+
     /// Initialize solution parameter
     #[inline]
     pub fn init_solution_param(&mut self) {
@@ -1335,11 +1347,10 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for DHGroupListParameter<T> {
     }
 }
 
-impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a DHGroupListParameter<T>>
-    for DHGroupListParameter<&'a [u8]>
-{
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a DHGroupListParameter<T>> for DHGroupListParameter<&'a [u8]> {
     fn fromtype(from: &'a DHGroupListParameter<T>) -> Result<Self> {
-        DHGroupListParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        DHGroupListParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -1416,6 +1427,17 @@ impl<T: AsRef<[u8]>> DHGroupListParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> DHGroupListParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `DHGroupList` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_dhgrouplist_param();
+        Ok(packet)
+    }
     /// Initialize DH groups list parameter
     #[inline]
     pub fn init_dhgrouplist_param(&mut self) {
@@ -1572,6 +1594,18 @@ impl<T: AsRef<[u8]>> DHParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> DHParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `DH` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_dhparameter_param();
+        Ok(packet)
+    }
+
     /// Initialize `DH Parameter` parameter
     #[inline]
     pub fn init_dhparameter_param(&mut self) {
@@ -1728,6 +1762,17 @@ impl<T: AsRef<[u8]>> CipherParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> CipherParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `Cipher` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_cipherparameter_param();
+        Ok(packet)
+    }
     /// Intialize `Cipher Parameter` parameter
     #[inline]
     pub fn init_cipherparameter_param(&mut self) {
@@ -1909,6 +1954,17 @@ impl<T: AsRef<[u8]>> HostIdParameter<T> {
 }
 
 impl<T: AsMut<[u8]> + AsRef<[u8]>> HostIdParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `HostId` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_hostidparameter_param();
+        Ok(packet)
+    }
     /// Initialize Host ID parameter.
     #[inline]
     pub fn init_hostidparameter_param(&mut self) {
@@ -2025,11 +2081,10 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for HITSuitListParameter<T> {
     }
 }
 
-impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a HITSuitListParameter<T>>
-    for HITSuitListParameter<&'a [u8]>
-{
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a HITSuitListParameter<T>> for HITSuitListParameter<&'a [u8]> {
     fn fromtype(from: &'a HITSuitListParameter<T>) -> Result<Self> {
-        HITSuitListParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        HITSuitListParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -2106,6 +2161,18 @@ impl<T: AsRef<[u8]>> HITSuitListParameter<T> {
 }
 
 impl<T: AsMut<[u8]> + AsRef<[u8]>> HITSuitListParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `HITSuitList` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_hitsuitlistparameter_param();
+        Ok(packet)
+    }
+
     /// Initialize HIT Suit list Paramter
     #[inline]
     pub fn init_hitsuitlistparameter_param(&mut self) {
@@ -2239,6 +2306,18 @@ impl<T: AsRef<[u8]>> TransportListParameter<T> {
 }
 
 impl<T: AsMut<[u8]> + AsRef<[u8]>> TransportListParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `TransportList` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_transportlistparameter_param();
+        Ok(packet)
+    }
+
     /// Initialize Transport List Parameter
     #[inline]
     pub fn init_transportlistparameter_param(&mut self) {
@@ -2375,6 +2454,17 @@ impl<T: AsRef<[u8]>> MACParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> MACParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `MAC` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_macparamter_param();
+        Ok(packet)
+    }
     /// Initialize MAC parameter
     #[inline]
     pub fn init_macparamter_param(&mut self) {
@@ -2428,7 +2518,8 @@ impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for MAC2Parameter<T> {
 
 impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a MAC2Parameter<T>> for MAC2Parameter<&'a [u8]> {
     fn fromtype(from: &'a MAC2Parameter<T>) -> Result<Self> {
-        MAC2Parameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        MAC2Parameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -2488,9 +2579,34 @@ impl<T: AsRef<[u8]>> MAC2Parameter<T> {
         let len = self.buffer.get_length();
         Ok(&data[field::HIP_MAC_2_OFFSET.start..field::HIP_MAC_2_OFFSET.start + len as usize])
     }
+
+    /// Get MAC2 Parameter's length - including type, length, public value length,
+    /// public value and padding.
+    #[inline]
+    pub fn get_length(&self) -> usize {
+        let len = (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+        len
+    }
+
+    /// Returns the underlying buffer as a slice of bytes.
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.inner_ref().as_ref()[..self.get_length()]
+    }
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> MAC2Parameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `MAC2` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_mac2paramter_param();
+        Ok(packet)
+    }
     /// Initialize MAC 2 parameter
     #[inline]
     pub fn init_mac2paramter_param(&mut self) {
@@ -2631,6 +2747,17 @@ impl<T: AsRef<[u8]>> SignatureParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> SignatureParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `Signature` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_signatureparameter();
+        Ok(packet)
+    }
     /// Initialize Signature parameter
     #[inline]
     pub fn init_signatureparameter(&mut self) {
@@ -2696,7 +2823,8 @@ impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a Signature2Parameter<T>>
     for Signature2Parameter<&'a [u8]>
 {
     fn fromtype(from: &'a Signature2Parameter<T>) -> Result<Self> {
-        Signature2Parameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        Signature2Parameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -2769,6 +2897,18 @@ impl<T: AsRef<[u8]>> Signature2Parameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> Signature2Parameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `Signature2` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_signature2parameter_param();
+        Ok(packet)
+    }
+
     /// Initialize Signature 2 parameter
     #[inline]
     pub fn init_signature2parameter_param(&mut self) {
@@ -2824,11 +2964,63 @@ pub struct SequenceParameter<T> {
     buffer: HIPParameter<T>,
 }
 
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for SequenceParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a SequenceParameter<T>> for SequenceParameter<&'a [u8]> {
+    fn fromtype(from: &'a SequenceParameter<T>) -> Result<Self> {
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        SequenceParameter::new_checked(&from.inner_ref().as_ref()[..len])
+    }
+}
+
 impl<T: AsRef<[u8]>> SequenceParameter<T> {
     /// Construct a new unchecked SequenceParameter packet structure.
     #[inline]
-    pub fn new(buffer: HIPParameter<T>) -> SequenceParameter<T> {
+    pub fn new_unchecked(buffer: HIPParameter<T>) -> SequenceParameter<T> {
         SequenceParameter { buffer }
+    }
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked(buffer: T) -> Result<Self> {
+        let packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        Ok(packet)
+    }
+
+    /// Ensure that no accessor method will panic if called.
+    /// Returns `Err(HIPError::Bufferistooshort)` if the buffer is too short.
+    /// Returns `Err(HIPError::IncorrectHeaderLength)` if the header length
+    /// field has a value smaller than the minimal header length.
+    ///
+    /// The result of this check is invalidated by calling [set_length].
+    ///
+    /// [set_length]: #method.set_length
+    pub fn check_len(&self) -> Result<()> {
+        let len = self.buffer.buffer.as_ref().len();
+        if len < field::HIP_UPDATE_ID_OFFSET.end {
+            Err(HIPError::Bufferistooshort)
+        } else {
+            let param_len =
+                (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+            if len < param_len {
+                Err(HIPError::Bufferistooshort)
+            } else if param_len < field::HIP_UPDATE_ID_OFFSET.end {
+                Err(HIPError::IncorrectHeaderLength)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    /// Returns a ref to the underlying buffer.
+    pub fn inner_ref(&self) -> &T {
+        &self.buffer.buffer
     }
 
     /// Returns a 32-bit sequence number
@@ -2840,6 +3032,17 @@ impl<T: AsRef<[u8]>> SequenceParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> SequenceParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `Sequence` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_sequenceparameter_param();
+        Ok(packet)
+    }
     /// Initialize Signature 2 parameter
     #[inline]
     pub fn init_sequenceparameter_param(&mut self) {
@@ -2873,15 +3076,64 @@ pub struct AckParameter<T> {
     buffer: HIPParameter<T>,
 }
 
-impl<T> AckParameter<T> {
-    /// Construct a new unchecked AckParameter packet structure.
-    #[inline]
-    pub fn new(buffer: HIPParameter<T>) -> AckParameter<T> {
-        AckParameter { buffer }
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for AckParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a AckParameter<T>> for AckParameter<&'a [u8]> {
+    fn fromtype(from: &'a AckParameter<T>) -> Result<Self> {
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        AckParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
 impl<T: AsRef<[u8]>> AckParameter<T> {
+    /// Construct a new unchecked SequenceParameter packet structure.
+    #[inline]
+    pub fn new_unchecked(buffer: HIPParameter<T>) -> AckParameter<T> {
+        AckParameter { buffer }
+    }
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked(buffer: T) -> Result<Self> {
+        let packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        Ok(packet)
+    }
+
+    /// Ensure that no accessor method will panic if called.
+    /// Returns `Err(HIPError::Bufferistooshort)` if the buffer is too short.
+    /// Returns `Err(HIPError::IncorrectHeaderLength)` if the header length
+    /// field has a value smaller than the minimal header length.
+    ///
+    /// The result of this check is invalidated by calling [set_length].
+    ///
+    /// [set_length]: #method.set_length
+    pub fn check_len(&self) -> Result<()> {
+        let len = self.buffer.buffer.as_ref().len();
+        if len < field::HIP_ACK_ID_OFFSET.start {
+            Err(HIPError::Bufferistooshort)
+        } else {
+            let param_len =
+                (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+            if len < param_len {
+                Err(HIPError::Bufferistooshort)
+            } else if param_len < field::HIP_ACK_ID_OFFSET.start {
+                Err(HIPError::IncorrectHeaderLength)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    /// Returns a ref to the underlying buffer.
+    pub fn inner_ref(&self) -> &T {
+        &self.buffer.buffer
+    }
     /// Returns one or more Update IDs that have been received from the peer.  
     /// The number of peer Update IDs can be inferred from the length by
     /// dividing it by 4
@@ -2893,6 +3145,17 @@ impl<T: AsRef<[u8]>> AckParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> AckParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `Ack` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_ackparameter_param();
+        Ok(packet)
+    }
     /// Initialize ACK parameter
     #[inline]
     pub fn init_ackparameter_param(&mut self) {
@@ -2944,15 +3207,59 @@ pub struct EncryptedParameter<T> {
     buffer: HIPParameter<T>,
 }
 
-impl<T> EncryptedParameter<T> {
-    /// Construct a new unchecked EncryptedParameter packet structure.
-    #[inline]
-    pub fn new(buffer: HIPParameter<T>) -> EncryptedParameter<T> {
-        EncryptedParameter { buffer }
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for EncryptedParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a EncryptedParameter<T>> for EncryptedParameter<&'a [u8]> {
+    fn fromtype(from: &'a EncryptedParameter<T>) -> Result<Self> {
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        EncryptedParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
 impl<T: AsRef<[u8]>> EncryptedParameter<T> {
+    /// Construct a new unchecked SequenceParameter packet structure.
+    #[inline]
+    pub fn new_unchecked(buffer: HIPParameter<T>) -> EncryptedParameter<T> {
+        EncryptedParameter { buffer }
+    }
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked(buffer: T) -> Result<Self> {
+        let packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        Ok(packet)
+    }
+
+    /// Ensure that no accessor method will panic if called.
+    /// Returns `Err(HIPError::Bufferistooshort)` if the buffer is too short.
+    /// Returns `Err(HIPError::IncorrectHeaderLength)` if the header length
+    /// field has a value smaller than the minimal header length.
+    ///
+    /// The result of this check is invalidated by calling [set_length].
+    ///
+    /// [set_length]: #method.set_length
+    pub fn check_len(&self) -> Result<()> {
+        let len = self.buffer.buffer.as_ref().len();
+        if len < field::HIP_ENCRYPTED_IV_OFFSET.start {
+            Err(HIPError::Bufferistooshort)
+        } else {
+            let param_len =
+                (11 + self.buffer.get_length() - ((self.buffer.get_length() + 3) % 8)) as usize;
+            if len < param_len {
+                Err(HIPError::Bufferistooshort)
+            } else if param_len < field::HIP_ENCRYPTED_IV_OFFSET.start {
+                Err(HIPError::IncorrectHeaderLength)
+            } else {
+                Ok(())
+            }
+        }
+    }
     /// Returns the  Initialization vector. The length of the IV is inferred
     /// from the HIP_CIPHER.
     #[inline]
@@ -2991,6 +3298,17 @@ impl<T: AsRef<[u8]>> EncryptedParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> EncryptedParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `Encrypyted` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_encrypytedparameter_param();
+        Ok(packet)
+    }
     /// Initialize Encrypted parameter
     #[inline]
     pub fn init_encrypytedparameter_param(&mut self) {
@@ -3293,23 +3611,26 @@ pub struct EchoResponseSignedParameter<T> {
     buffer: HIPParameter<T>,
 }
 
-impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a EchoResponseSignedParameter<T>>
-    for EchoResponseSignedParameter<&'a [u8]>
-{
-    fn fromtype(from: &'a EchoResponseSignedParameter<T>) -> Result<Self> {
-        EchoResponseSignedParameter::new_checked(from.inner_ref().as_ref())
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for EchoResponseSignedParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
     }
 }
 
-impl<T> EchoResponseSignedParameter<T> {
-    /// Construct a new unchecked EchoResponseSignedParameter packet structure.
-    #[inline]
-    pub fn new_unchecked(buffer: HIPParameter<T>) -> EchoResponseSignedParameter<T> {
-        EchoResponseSignedParameter { buffer }
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a EchoResponseSignedParameter<T>> for EchoResponseSignedParameter<&'a [u8]> {
+    fn fromtype(from: &'a EchoResponseSignedParameter<T>) -> Result<Self> {
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        EchoResponseSignedParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
 impl<T: AsRef<[u8]>> EchoResponseSignedParameter<T> {
+    /// Construct a new unchecked EchoResponseUnsignedParameter packet
+    /// structure.
+    #[inline]
+    pub fn new_unchecked(buffer: HIPParameter<T>) -> EchoResponseSignedParameter<T> {
+        EchoResponseSignedParameter { buffer }
+    }
     /// Shorthand for a combination of [new_unchecked] and [check_len].
     ///
     /// [new_unchecked]: #method.new_unchecked
@@ -3375,6 +3696,17 @@ impl<T: AsRef<[u8]>> EchoResponseSignedParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> EchoResponseSignedParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `EchoResponseSigned` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_echoresponse_signed_param();
+        Ok(packet)
+    }
     /// Initialize Echo Response Signed parameter
     #[inline]
     pub fn init_echoresponse_signed_param(&mut self) {
@@ -3418,11 +3750,16 @@ pub struct EchoResponseUnsignedParameter<T> {
     buffer: HIPParameter<T>,
 }
 
-impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a EchoResponseUnsignedParameter<T>>
-    for EchoResponseUnsignedParameter<&'a [u8]>
-{
+impl<'a, T: 'a + AsRef<[u8]>> ParamMarker<'a, T> for EchoResponseUnsignedParameter<T> {
+    fn inner_ref(&self) -> &'_ T {
+        &self.buffer.buffer
+    }
+}
+
+impl<'a, T: 'a + AsRef<[u8]>> FromType<&'a EchoResponseUnsignedParameter<T>> for EchoResponseUnsignedParameter<&'a [u8]> {
     fn fromtype(from: &'a EchoResponseUnsignedParameter<T>) -> Result<Self> {
-        EchoResponseUnsignedParameter::new_checked(from.inner_ref().as_ref())
+        let len = (11 + from.buffer.get_length() - ((from.buffer.get_length() + 3) % 8)) as usize;
+        EchoResponseUnsignedParameter::new_checked(&from.inner_ref().as_ref()[..len])
     }
 }
 
@@ -3487,6 +3824,17 @@ impl<T: AsRef<[u8]>> EchoResponseUnsignedParameter<T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> EchoResponseUnsignedParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `EchoResponseUnsigned` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_echoresponse_unsigned_param();
+        Ok(packet)
+    }
     /// Initialize Echo Response Signed parameter
     #[inline]
     pub fn init_echoresponse_unsigned_param(&mut self) {
@@ -3615,6 +3963,17 @@ impl<T: AsRef<[u8]>> ESPTransformParameter<T> {
     }
 }
 impl<T: AsRef<[u8]> + AsMut<[u8]>> ESPTransformParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `ESPTransform` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_esptransformparameter_param();
+        Ok(packet)
+    }
     /// Initialize ESP Transform parameter
     #[inline]
     pub fn init_esptransformparameter_param(&mut self) {
@@ -3771,7 +4130,18 @@ impl<T: AsRef<[u8]>> ESPInfoParameter<T> {
     }
 }
 
-impl<T: AsMut<[u8]>> ESPInfoParameter<T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]>> ESPInfoParameter<T> {
+    /// Shorthand for a combination of [new_unchecked] and [check_len].
+    ///
+    /// Returns an initialized `ESPInfo` parameter whose underlying buffer can be mutated.
+    /// [new_unchecked]: #method.new_unchecked
+    /// [check_len]: #method.check_len
+    pub fn new_checked_mut(buffer: T) -> Result<Self> {
+        let mut packet = Self::new_unchecked(HIPParameter::new_unchecked(buffer));
+        packet.check_len()?;
+        packet.init_espinfoparameter_param();
+        Ok(packet)
+    }
     /// Initialize ESP Info parameter
     #[inline]
     pub fn init_espinfoparameter_param(&mut self) {

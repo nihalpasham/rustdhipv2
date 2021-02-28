@@ -156,8 +156,8 @@ impl<'a> HIPDaemon<'a> {
             .map_err(|_| HIPError::Bufferistooshort)?;
         rec_hip_packet[CHECKSUM.start] = 0;
         rec_hip_packet[CHECKSUM.end - 1] = 0;
-        hip_debug!("{:?}", &rec_hip_packet[..].len());
-        hip_debug!("{:?}", &rec_hip_packet[..]);
+        // hip_debug!("{:?}", &rec_hip_packet[..].len());
+        // hip_debug!("{:?}", &rec_hip_packet[..]);
         // hip_packet.set_checksum(0x0);
         let computed_checksum = Utils::hip_ipv4_checksum(
             &src.0,
@@ -239,7 +239,6 @@ impl<'a> HIPDaemon<'a> {
                 let puzzle_param = match rhash_len {
                     0x20 => {
                         let mut puzzle_param = PuzzleParameter::new_checked_mut([0; 40])?;
-                        // puzzle_param.init_puzzle_param();
                         puzzle_param.set_k_value(0x10); // 16-bit difficulty
                         puzzle_param.set_lifetime(37);
                         (
@@ -249,7 +248,6 @@ impl<'a> HIPDaemon<'a> {
                     }
                     0x30 => {
                         let mut puzzle_param = PuzzleParameter::new_checked_mut([0; 56])?;
-                        // puzzle_param.init_puzzle_param();
                         puzzle_param.set_k_value(0x10); // 16-bit difficulty
                         puzzle_param.set_lifetime(37);
                         (
@@ -262,8 +260,7 @@ impl<'a> HIPDaemon<'a> {
 
                 // HIP DH Groups Parameter. An R1 packet will have a 8-byte DH Groups parameter
                 // (i.e. 4 byte TLV + 1 byte selected dh group + 3 bytes of padding)
-                let mut dhgroups_param = DHGroupListParameter::new_checked([0; 8])?;
-                dhgroups_param.init_dhgrouplist_param();
+                let mut dhgroups_param = DHGroupListParameter::new_checked_mut([0; 8])?;
                 let params = hip_packet
                     .get_parameters()
                     .ok_or_else(|| HIPError::FieldNotSet)?;
@@ -353,8 +350,7 @@ impl<'a> HIPDaemon<'a> {
                 let dh_param = match (dh_is_ecdh256, dh_is_ecdh384) {
                     (true, _) => {
                         let dh_param_buffer = [0; 80];
-                        let mut dh_param256 = DHParameter::new_checked(dh_param_buffer)?;
-                        dh_param256.init_dhparameter_param();
+                        let mut dh_param256 = DHParameter::new_checked_mut(dh_param_buffer)?;
                         dh_param256
                             .set_group_id(selected_dh_group.ok_or_else(|| HIPError::Unrecognized)?);
                         dh_param256.set_public_value_length(0x40 + 1); // uncompressed pubkey len for ECDH256
@@ -367,8 +363,7 @@ impl<'a> HIPDaemon<'a> {
 
                     (_, true) => {
                         let dh_param_buffer = [0; 112];
-                        let mut dh_param384 = DHParameter::new_checked(dh_param_buffer)?;
-                        dh_param384.init_dhparameter_param();
+                        let mut dh_param384 = DHParameter::new_checked_mut(dh_param_buffer)?;
                         dh_param384
                             .set_group_id(selected_dh_group.ok_or_else(|| HIPError::Unrecognized)?);
                         dh_param384.set_public_value_length(0x60 + 1); // uncompressed pubkey len for ECDH384
@@ -382,13 +377,11 @@ impl<'a> HIPDaemon<'a> {
                 };
 
                 // HIP Cipher Parameter. We're advertising a maximum of 3 ciphers
-                let mut cipher_param = CipherParameter::new_checked([0; 16])?;
-                cipher_param.init_cipherparameter_param();
+                let mut cipher_param = CipherParameter::new_checked_mut([0; 16])?;
                 cipher_param.set_ciphers(&[0x00, 0x4, 0x00, 0x2, 0x00, 0x1]); // aes256 -0x4, aes128 - 0x2, null -0x1
 
                 // HIP ESP Transform Parameter. We're advertising a maximum of 3 ESP suits
-                let mut esp_transform_param = ESPTransformParameter::new_checked([0; 16])?;
-                esp_transform_param.init_esptransformparameter_param();
+                let mut esp_transform_param = ESPTransformParameter::new_checked_mut([0; 16])?;
                 // AES-128-CBC with HMAC-SHA-256 (0x8), AES-256-CBC with HMAC-SHA-256 (0x9) NULL
                 // with HMAC-SHA-256 (0x7),
                 esp_transform_param.set_esp_suits(&[0x00, 0x9, 0x00, 0x8, 0x00, 0x7]);
@@ -396,15 +389,13 @@ impl<'a> HIPDaemon<'a> {
                 // Host Identity Parameter.
                 let mut hi_param = match self.hi {
                     HostIdTypes::ECDSAId256(hi) => {
-                        let mut hi_256 = HostIdParameter::new_checked([0; 104])?;
-                        hi_256.init_hostidparameter_param();
+                        let mut hi_256 = HostIdParameter::new_checked_mut([0; 104])?;
                         hi_256.set_host_id(&hi, &self.hi);
                         hi_256.set_domain_id(&DOMAIN_ID().into_bytes()[..]);
                         (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default)
                     }
                     HostIdTypes::ECDSAId384(hi) => {
-                        let mut hi_384 = HostIdParameter::new_checked([0; 136])?;
-                        hi_384.init_hostidparameter_param();
+                        let mut hi_384 = HostIdParameter::new_checked_mut([0; 136])?;
                         hi_384.set_host_id(&hi, &self.hi);
                         hi_384.set_domain_id(&DOMAIN_ID().into_bytes()[..]);
                         (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384))
@@ -413,26 +404,22 @@ impl<'a> HIPDaemon<'a> {
                 };
 
                 // HIT Suit List Parameter
-                let mut hit_suitlist_param = HITSuitListParameter::new_checked([0; 8])?;
-                hit_suitlist_param.init_hitsuitlistparameter_param();
+                let mut hit_suitlist_param = HITSuitListParameter::new_checked_mut([0; 8])?;
                 hit_suitlist_param.set_suits(&[0x10, 0x20, 0x30]); // SHA256 (0x1), SHA384 (0x2), SHA1 (0x3)
 
                 // Transport List Parameter
-                let mut transfmt_param = TransportListParameter::new_checked([0; 8])?;
-                transfmt_param.init_transportlistparameter_param();
+                let mut transfmt_param = TransportListParameter::new_checked_mut([0; 8])?;
                 transfmt_param.set_transport_formats(&[0x0F, 0xFF]);
 
                 // Signature Parameter
                 let signer_tuple = match self.privkey {
                     Some(val) if val.len() == 0x20 => {
-                        let mut signature_param = Signature2Parameter::new_checked([0; 72])?;
-                        signature_param.init_signature2parameter_param();
+                        let mut signature_param = Signature2Parameter::new_checked_mut([0; 72])?;
                         let signer = ECDSASHA256Signature(val.try_into().unwrap(), [0; 64]);
                         (Some((signature_param, signer)), None)
                     }
                     Some(val) if val.len() == 0x30 => {
-                        let mut signature_param = Signature2Parameter::new_checked([0; 104])?;
-                        signature_param.init_signature2parameter_param();
+                        let mut signature_param = Signature2Parameter::new_checked_mut([0; 104])?;
                         let signer = ECDSASHA384Signature(
                             val.try_into().unwrap(),
                             EncodedPointP384::identity(),
@@ -513,12 +500,12 @@ impl<'a> HIPDaemon<'a> {
                     Err(e) => unreachable!(),
                 };
 
-                hip_debug!("data_tobe_signed: {:?}", data_tobe_signed);
+                // hip_debug!("data_tobe_signed: {:?}", data_tobe_signed);
 
                 let signature_param = match signer_tuple {
                     (Some((mut signature_param, signer)), None) => {
                         let signature = signer.sign(&data_tobe_signed?[..]);
-                        hip_debug!("computed_signature: {:?}", signature);
+                        // hip_debug!("computed_signature: {:?}", signature);
                         signature_param.set_signature_algorithm_2(0x7);
                         signature_param.set_signature_2(&signature?[..]);
                         (
@@ -942,16 +929,14 @@ impl<'a> HIPDaemon<'a> {
                 }
 
                 // Echo Response Signed Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
-                let mut echo_signed = EchoResponseSignedParameter::new_checked([0; 36])?;
-                echo_signed.init_echoresponse_signed_param();
+                let mut echo_signed = EchoResponseSignedParameter::new_checked_mut([0; 36])?;
                 if echo_request_signed_opaque_data.is_some() {
                     echo_signed.set_opaque_data(
                         echo_request_signed_opaque_data.ok_or_else(|| HIPError::FieldNotSet)??,
                     );
                 }
                 // Echo Response Unsigned Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
-                let mut echo_unsigned = EchoResponseUnsignedParameter::new_checked([0; 36])?;
-                echo_unsigned.init_echoresponse_unsigned_param();
+                let mut echo_unsigned = EchoResponseUnsignedParameter::new_checked_mut([0; 36])?;
                 if echo_request_unisgned_opaque_data.is_some() {
                     echo_unsigned.set_opaque_data(
                         echo_request_unisgned_opaque_data
@@ -969,7 +954,7 @@ impl<'a> HIPDaemon<'a> {
                     0x20 => {
                         reset_puzzle_param.set_random(&[0; 0x20], rhash_len);
                         reset_puzzle_param.set_opaque(0u16);
-                        reset_puzzle_param.set_length(0u16);    
+                        reset_puzzle_param.set_length(0u16);
                     }
                     0x30 => {
                         reset_puzzle_param.set_random(&[0; 0x30], rhash_len);
@@ -1059,7 +1044,7 @@ impl<'a> HIPDaemon<'a> {
                             .map_err(|_| HIPError::Bufferistooshort)?;
                     }
 
-                    hip_debug!("bytes_to_verify {:?}", bytes_to_verify);
+                    // hip_debug!("bytes_to_verify {:?}", bytes_to_verify);
 
                     match (responder_pubkey256, responder_pubkey384) {
                         (Some(val), None) => {
@@ -1338,8 +1323,7 @@ impl<'a> HIPDaemon<'a> {
 
                 // HIP Solution Parameter
                 let mut solution_param =
-                    SolutionParameter::new_checked([0; HIP_SOLUTION_J_OFFSET.end])?;
-                solution_param.init_solution_param();
+                    SolutionParameter::new_checked_mut([0; HIP_SOLUTION_J_OFFSET.end])?;
                 solution_param.set_k_value(
                     puzzle_param
                         .ok_or_else(|| HIPError::FieldNotSet)?
@@ -1353,8 +1337,7 @@ impl<'a> HIPDaemon<'a> {
                 let dh_param = match (dh_is_ecdh256, dh_is_ecdh384) {
                     (true, _) => {
                         let dh_param_buffer = [0; 80];
-                        let mut dh_param256 = DHParameter::new_checked(dh_param_buffer)?;
-                        dh_param256.init_dhparameter_param();
+                        let mut dh_param256 = DHParameter::new_checked_mut(dh_param_buffer)?;
                         dh_param256
                             .set_group_id(selected_dh_group.ok_or_else(|| HIPError::Unrecognized)?);
                         dh_param256.set_public_value_length(0x40 + 1); // uncompressed pubkey len for ECDH256
@@ -1367,8 +1350,7 @@ impl<'a> HIPDaemon<'a> {
 
                     (_, true) => {
                         let dh_param_buffer = [0; 112];
-                        let mut dh_param384 = DHParameter::new_checked(dh_param_buffer)?;
-                        dh_param384.init_dhparameter_param();
+                        let mut dh_param384 = DHParameter::new_checked_mut(dh_param_buffer)?;
                         dh_param384
                             .set_group_id(selected_dh_group.ok_or_else(|| HIPError::Unrecognized)?);
                         dh_param384.set_public_value_length(0x60 + 1); // uncompressed pubkey len for ECDH384
@@ -1382,24 +1364,21 @@ impl<'a> HIPDaemon<'a> {
                 };
 
                 // HIP Cipher Parameter. Set selected cipher
-                let mut cipher_param = CipherParameter::new_checked([0; 16])?;
+                let mut cipher_param = CipherParameter::new_checked_mut([0; 16])?;
                 let chosen_cipher = selected_cipher.ok_or_else(|| HIPError::Unrecognized)?;
-                cipher_param.init_cipherparameter_param();
                 cipher_param.set_ciphers(&[0x00, chosen_cipher]); // aes256 -0x4, aes128 - 0x2, null -0x1
 
                 // HIP ESP Transform Parameter. Set selected esp transform suit
-                let mut esp_transform_param = ESPTransformParameter::new_checked([0; 16])?;
+                let mut esp_transform_param = ESPTransformParameter::new_checked_mut([0; 16])?;
                 let chosen_esp_transform =
                     selected_esp_transform.ok_or_else(|| HIPError::Unrecognized)?;
-                esp_transform_param.init_esptransformparameter_param();
                 // AES-128-CBC with HMAC-SHA-256 (0x8), AES-256-CBC with HMAC-SHA-256 (0x9) NULL with HMAC-SHA-256 (0x7),
                 esp_transform_param.set_esp_suits(&[0x00, chosen_esp_transform]);
 
                 // HIP ESP Info Parameter
                 let keymat_index =
                     Utils::compute_hip_keymat_len(hmac_alg, selected_cipher.unwrap());
-                let mut esp_info_param = ESPInfoParameter::new_checked([0; 16])?;
-                esp_info_param.init_espinfoparameter_param();
+                let mut esp_info_param = ESPInfoParameter::new_checked_mut([0; 16])?;
                 esp_info_param.set_keymat_index(keymat_index as u16);
                 let random_spi = u32::from_be_bytes(getrandom::<4>([12; 32]));
                 esp_info_param.set_new_spi(random_spi);
@@ -1407,15 +1386,13 @@ impl<'a> HIPDaemon<'a> {
                 // Host Identity Parameter.
                 let mut hi_param = match self.hi {
                     HostIdTypes::ECDSAId256(hi) => {
-                        let mut hi_256 = HostIdParameter::new_checked([0; 104])?;
-                        hi_256.init_hostidparameter_param();
+                        let mut hi_256 = HostIdParameter::new_checked_mut([0; 104])?;
                         hi_256.set_host_id(&hi, &self.hi);
                         hi_256.set_domain_id(&DOMAIN_ID().into_bytes()[..]);
                         (HIPParamsTypes::HostIdParam(hi_256), HIPParamsTypes::Default)
                     }
                     HostIdTypes::ECDSAId384(hi) => {
-                        let mut hi_384 = HostIdParameter::new_checked([0; 136])?;
-                        hi_384.init_hostidparameter_param();
+                        let mut hi_384 = HostIdParameter::new_checked_mut([0; 136])?;
                         hi_384.set_host_id(&hi, &self.hi);
                         hi_384.set_domain_id(&DOMAIN_ID().into_bytes()[..]);
                         (HIPParamsTypes::Default, HIPParamsTypes::HostIdParam(hi_384))
@@ -1424,20 +1401,17 @@ impl<'a> HIPDaemon<'a> {
                 };
 
                 // Transport List Parameter
-                let mut transfmt_param = TransportListParameter::new_checked([0; 8])?;
-                transfmt_param.init_transportlistparameter_param();
+                let mut transfmt_param = TransportListParameter::new_checked_mut([0; 8])?;
                 transfmt_param.set_transport_formats(&[0x0F, 0xFF]);
 
                 // HIP Mac Parameter
                 let (mut mac256_param, mut mac384_param) = match hmac_alg {
                     0x1 => {
-                        let mut mac_param = MACParameter::new_checked([0; 32 + 8])?;
-                        mac_param.init_macparamter_param();
+                        let mut mac_param = MACParameter::new_checked_mut([0; 32 + 8])?;
                         (Some(mac_param), None)
                     }
                     0x2 => {
-                        let mut mac_param = MACParameter::new_checked([0; 48 + 8])?;
-                        mac_param.init_macparamter_param();
+                        let mut mac_param = MACParameter::new_checked_mut([0; 48 + 8])?;
                         (None, Some(mac_param))
                     }
                     _ => unimplemented!(),
@@ -1654,8 +1628,8 @@ impl<'a> HIPDaemon<'a> {
                 let (mac256_param, mac384_param) = match (mac256_param, mac384_param) {
                     (Some(mut val), None) => {
                         val.set_hmac(&SHA256HMAC::hmac_256(&hmac_bytes[..], hmac_key));
-                        hip_debug!("hmac_bytes: {:?}", &hmac_bytes[..]);
-                        hip_debug!("hmac_bytes: {:?}", hmac_key);
+                        // hip_debug!("hmac_bytes: {:?}", &hmac_bytes[..]);
+                        // hip_debug!("hmac_bytes: {:?}", hmac_key);
                         (Some(val), None)
                     }
                     (None, Some(mut val)) => {
@@ -1670,14 +1644,12 @@ impl<'a> HIPDaemon<'a> {
                 // Construct Signature Parameter
                 let signer_tuple = match self.privkey {
                     Some(val) if val.len() == 0x20 => {
-                        let mut signature_param = SignatureParameter::new_checked([0; 72])?;
-                        signature_param.init_signatureparameter();
+                        let mut signature_param = SignatureParameter::new_checked_mut([0; 72])?;
                         let signer = ECDSASHA256Signature(val.try_into().unwrap(), [0; 64]);
                         (Some((signature_param, signer)), None)
                     }
                     Some(val) if val.len() == 0x30 => {
-                        let mut signature_param = SignatureParameter::new_checked([0; 104])?;
-                        signature_param.init_signatureparameter();
+                        let mut signature_param = SignatureParameter::new_checked_mut([0; 104])?;
                         let signer = ECDSASHA384Signature(
                             val.try_into().unwrap(),
                             EncodedPointP384::identity(),
@@ -1689,7 +1661,9 @@ impl<'a> HIPDaemon<'a> {
                 };
 
                 // Reset R1 header length
-                hip_i2_packet.packet.set_header_length((HIP_HEADER_LENGTH as u8 - 8) / 8);
+                hip_i2_packet
+                    .packet
+                    .set_header_length((HIP_HEADER_LENGTH as u8 - 8) / 8);
 
                 let data_tobe_signed: Result<Vec<u8, _>> = match (mac256_param, mac384_param) {
                     (Some(mac256_param), None) => {
@@ -1736,8 +1710,8 @@ impl<'a> HIPDaemon<'a> {
                         let signature = signer.sign(&data_tobe_signed.clone()?[..]);
                         signature_param.set_signature_algorithm(0x7);
                         signature_param.set_signature(&signature?[..]);
-                        hip_debug!("data_tobe_signed: {:?}", &data_tobe_signed?[..]);
-                        hip_debug!("signature: {:?}", &signature?[..]);
+                        // hip_debug!("data_tobe_signed: {:?}", &data_tobe_signed?[..]);
+                        // hip_debug!("signature: {:?}", &signature?[..]);
                         (
                             HIPParamsTypes::SignatureParam(signature_param),
                             HIPParamsTypes::Default,
@@ -2044,7 +2018,7 @@ impl<'a> HIPDaemon<'a> {
                         (Some(old_state), Some(new_state)) => **old_state = new_state,
                         (_, _) => {
                             hip_debug!(
-                                "Invalid states reached, prev: {:?}, new: {:?}",
+                                "Invalid states reached, prev: {:?}, current: {:?}",
                                 old_hip_state,
                                 hip_state
                             );
@@ -2144,7 +2118,7 @@ impl<'a> HIPDaemon<'a> {
                                     if !Utils::hits_equal(&ihit, &initiators_hit) {
                                         hip_trace!("Invalid HIT");
                                         panic!(
-                                            "Invalid HIT {:?}, responder_hit: {:?}",
+                                            "Invalid HIT {:?}, initiator_hit: {:?}",
                                             &ihit, &initiators_hit
                                         );
                                     }
@@ -2157,7 +2131,7 @@ impl<'a> HIPDaemon<'a> {
                                     if !Utils::hits_equal(&ihit, &initiators_hit) {
                                         hip_trace!("Invalid HIT");
                                         panic!(
-                                            "Invalid HIT {:?}, responder_hit: {:?}",
+                                            "Invalid HIT {:?}, initiator_hit: {:?}",
                                             &ihit, &initiators_hit
                                         );
                                     }
@@ -2353,9 +2327,9 @@ impl<'a> HIPDaemon<'a> {
                     _ => unimplemented!(),
                 };
                 if ss256.is_some() {
-                    hip_debug!("Secret key {:?}", ss256.clone().unwrap().to_bytes());
+                    hip_debug!("#debug::secret_key {:?}", ss256.clone().unwrap().to_bytes());
                 } else if ss384.is_some() {
-                    hip_debug!("Secret key {:?}", ss384.clone().unwrap().to_bytes());
+                    hip_debug!("#debug::secret_key {:?}", ss384.clone().unwrap().to_bytes());
                 }
 
                 // A 64 byte salt for the HBKDF from the concatenated irandom + jrandom values
@@ -2503,8 +2477,8 @@ impl<'a> HIPDaemon<'a> {
                     if hi_param.get_algorithm()? == 0x7 {
                         let initiator_hi = hi_param.get_host_id();
                         let oga = HIT::get_responders_oga_id(&ihit);
-                        hip_debug!("Responder's OGA ID {:?}", oga);
-                        hip_debug!("Responder HI: {:?}", initiator_hi);
+                        hip_debug!("Initiator's OGA ID {:?}", oga);
+                        hip_debug!("Initiator HI: {:?}", initiator_hi);
                         let hi = match initiator_hi {
                             Ok(val) => val,
                             _ => {
@@ -2521,7 +2495,7 @@ impl<'a> HIPDaemon<'a> {
                                 if !Utils::hits_equal(&ihit, &initiators_hit) {
                                     hip_trace!("Invalid HIT");
                                     panic!(
-                                        "Invalid HIT {:?}, responder_hit: {:?}",
+                                        "Invalid HIT {:?}, initiator_hit: {:?}",
                                         &ihit, &initiators_hit
                                     );
                                 }
@@ -2776,8 +2750,7 @@ impl<'a> HIPDaemon<'a> {
                     return Err(HIPError::IncorrectLength);
                 }
 
-                let mut esp_info_param = ESPInfoParameter::new_checked([0; 16])?;
-                esp_info_param.init_espinfoparameter_param();
+                let mut esp_info_param = ESPInfoParameter::new_checked_mut([0; 16])?;
                 esp_info_param.set_keymat_index(keymat_index as u16);
                 esp_info_param.set_new_spi(u32::from_be_bytes(responder_spi));
 
@@ -2791,48 +2764,60 @@ impl<'a> HIPDaemon<'a> {
                     &ihit,
                     &rhit,
                 )?;
+
+                // hip_debug!("keymat: {:?}", keymat);
+                // hip_debug!("keymat: {:?}", self.keymat_map.keys());
+
                 let hmac = HMACFactory::get(hmac_alg);
 
                 // HIP Mac2 Parameter
                 let (mut mac2_256_param, mut mac2_384_param) = match hmac_alg {
                     0x1 => {
-                        let mut mac2_param = MAC2Parameter::new_checked([0; 32 + 8])?;
-                        mac2_param.init_mac2paramter_param();
+                        let mut mac2_param = MAC2Parameter::new_checked_mut([0; 32 + 8])?;
                         (Some(mac2_param), None)
                     }
                     0x2 => {
-                        let mut mac2_param = MAC2Parameter::new_checked([0; 48 + 8])?;
-                        mac2_param.init_mac2paramter_param();
+                        let mut mac2_param = MAC2Parameter::new_checked_mut([0; 48 + 8])?;
                         (None, Some(mac2_param))
                     }
                     _ => unimplemented!(),
                 };
 
                 let byte_len = (1 + hip_r2_packet.packet.get_header_length() as usize) * 8;
-                if mac2_256_param.is_some() {
-                    mac2_256_param.unwrap().set_hmac2(&SHA256HMAC::hmac_256(
-                        &hip_r2_packet.inner_ref().as_ref()[..byte_len],
-                        hmac_key,
-                    ));
-                } else if mac2_384_param.is_some() {
-                    mac2_384_param.unwrap().set_hmac2(&SHA384HMAC::hmac_384(
-                        &hip_r2_packet.inner_ref().as_ref()[..byte_len],
-                        hmac_key,
-                    ));
-                }
+                let (mac2_256_param, mac2_384_param) = match (mac2_256_param, mac2_384_param) {
+                    (Some(mut val), None) => {
+                        val.set_hmac2(&SHA256HMAC::hmac_256(
+                            &hip_r2_packet.inner_ref().as_ref()[..byte_len],
+                            hmac_key,
+                        ));
+                        // hip_debug!(
+                        //     "hmac_bytes: {:?}",
+                        //     &hip_r2_packet.inner_ref().as_ref()[..byte_len]
+                        // );
+                        // hip_debug!("hmac_key: {:?}", hmac_key);
+                        // hip_debug!("hmac: {:?}", val.get_hmac2());
+                        (Some(val), None)
+                    }
+                    (None, Some(mut val)) => {
+                        val.set_hmac2(&SHA384HMAC::hmac_384(
+                            &hip_r2_packet.inner_ref().as_ref()[..byte_len],
+                            hmac_key,
+                        ));
+                        (None, Some(val))
+                    }
+                    (_, _) => unimplemented!(),
+                };
 
                 // Compute Signature
                 // Get signer_tuple - i.e. Signature2 Parameter AND ECDSA Signature type
                 let signer_tuple = match self.privkey {
                     Some(val) if val.len() == 0x20 => {
-                        let mut signature_param = Signature2Parameter::new_checked([0; 72])?;
-                        signature_param.init_signature2parameter_param();
+                        let mut signature_param = Signature2Parameter::new_checked_mut([0; 72])?;
                         let signer = ECDSASHA256Signature(val.try_into().unwrap(), [0; 64]);
                         (Some((signature_param, signer)), None)
                     }
                     Some(val) if val.len() == 0x30 => {
-                        let mut signature_param = Signature2Parameter::new_checked([0; 104])?;
-                        signature_param.init_signature2parameter_param();
+                        let mut signature_param = Signature2Parameter::new_checked_mut([0; 104])?;
                         let signer = ECDSASHA384Signature(
                             val.try_into().unwrap(),
                             EncodedPointP384::identity(),
@@ -2843,34 +2828,33 @@ impl<'a> HIPDaemon<'a> {
                     None => unreachable!(),
                 };
 
+                let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
+                let pkt_len = (current_r2pkt_len as usize * 8)
+                    + mac2_256_param
+                        .ok_or_else(|| HIPError::FieldNotSet)?
+                        .get_length();
+                hip_r2_packet.packet.set_header_length((pkt_len / 8) as u8);
+
                 // Get data to be signed
                 let data_tobe_signed: Result<Vec<u8, _>> = match (mac2_256_param, mac2_384_param) {
                     (Some(mac2_256_param), None) => {
                         let mut s: Vec<u8, U512> = Vec::new();
                         for byte in hip_r2_packet.inner_ref().as_ref()[..byte_len]
                             .iter()
-                            .chain(mac2_256_param.inner_ref().as_ref().iter())
+                            .chain(mac2_256_param.as_bytes().iter())
                         {
                             s.push(*byte).map_err(|_| HIPError::Bufferistooshort)?;
                         }
-                        let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
-                        let pkt_len = (current_r1pkt_len as usize * 8)
-                            + mac2_256_param.inner_ref().as_ref().len();
-                        hip_r2_packet.packet.set_header_length((pkt_len / 8) as u8);
                         Ok(s)
                     }
                     (None, Some(mac2_384_param)) => {
                         let mut s: Vec<u8, U512> = Vec::new();
                         for byte in hip_r2_packet.inner_ref().as_ref()[..byte_len]
                             .iter()
-                            .chain(mac2_384_param.inner_ref().as_ref().iter())
+                            .chain(mac2_384_param.as_bytes().iter())
                         {
                             s.push(*byte).map_err(|_| HIPError::Bufferistooshort)?;
                         }
-                        let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
-                        let pkt_len = (current_r1pkt_len as usize * 8)
-                            + mac2_384_param.inner_ref().as_ref().len();
-                        hip_r2_packet.packet.set_header_length((pkt_len / 8) as u8);
                         Ok(s)
                     }
                     (_, _) => unimplemented!(),
@@ -2878,9 +2862,11 @@ impl<'a> HIPDaemon<'a> {
 
                 let signature_param = match signer_tuple {
                     (Some((mut signature_param, signer)), None) => {
-                        let signature = signer.sign(&data_tobe_signed?[..]);
+                        let signature = signer.sign(&data_tobe_signed.clone()?[..]);
                         signature_param.set_signature_algorithm_2(0x7);
                         signature_param.set_signature_2(&signature?[..]);
+                        // hip_debug!("data_tob_signed: {:?}", &data_tobe_signed?[..]);
+                        // hip_debug!("signature: {:?}", &signature?[..]);
                         (
                             HIPParamsTypes::Signature2Param(signature_param),
                             HIPParamsTypes::Default,
@@ -2898,17 +2884,20 @@ impl<'a> HIPDaemon<'a> {
                     (_, _) => unimplemented!(),
                 };
 
+                // Reset R2 header length
+                hip_r2_packet.packet.set_header_length(
+                    ((HIP_HEADER_LENGTH - 8 + esp_info_param.get_length()) / 8) as u8,
+                );
+
                 #[rustfmt::skip]
                 match (signature_param, mac2_256_param) {
                     ((HIPParamsTypes::Signature2Param(s256), HIPParamsTypes::Default),// 
                         Some(mac2_256_param))  => {
-                        hip_r2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
                         hip_r2_packet.add_param(HIPParamsTypes::MAC2Param(MAC2Parameter::fromtype(&mac2_256_param)?));
                         hip_r2_packet.add_param(HIPParamsTypes::Signature2Param(Signature2Parameter::fromtype(&s256)?));
                     },
                     ((HIPParamsTypes::Signature2Param(s384), HIPParamsTypes::Default),// 
                         Some(mac2_384_param))  => {
-                        hip_r2_packet.add_param(HIPParamsTypes::ESPInfoParam(ESPInfoParameter::fromtype(&esp_info_param)?));
                         hip_r2_packet.add_param(HIPParamsTypes::MAC2Param(MAC2Parameter::fromtype(&mac2_384_param)?));
                         hip_r2_packet.add_param(HIPParamsTypes::Signature2Param(Signature2Parameter::fromtype(&s384)?));
                     }
@@ -2996,7 +2985,7 @@ impl<'a> HIPDaemon<'a> {
                         (Some(old_state), Some(new_state)) => **old_state = new_state,
                         (_, _) => {
                             hip_debug!(
-                                "Invalid states reached, prev: {:?}, new: {:?}",
+                                "Invalid states reached, prev: {:?}, current: {:?}",
                                 old_hip_state,
                                 hip_state
                             );
@@ -3209,9 +3198,12 @@ impl<'a> HIPDaemon<'a> {
                     &keymat[..keymat_len_octets as usize],
                     hmac_alg,
                     cipher_alg,
-                    &ihit,
                     &rhit,
+                    &ihit,
                 )?;
+
+                // hip_debug!("keymat: {:?}", keymat);
+                // hip_debug!("keymat: {:?}", self.keymat_map.keys());
 
                 let hmac = HMACFactory::get(hmac_alg);
                 let param_list = hip_packet
@@ -3252,8 +3244,12 @@ impl<'a> HIPDaemon<'a> {
 
                 // Construct a new R2 Packet
                 let mut hip_r2_packet = R2Packet::<[u8; 512]>::new_r2packet()?;
-                hip_r2_packet.packet.set_senders_hit(&rhit);
-                hip_r2_packet.packet.set_receivers_hit(&ihit);
+                hip_r2_packet
+                    .packet
+                    .set_senders_hit(&hip_packet.get_senders_hit());
+                hip_r2_packet
+                    .packet
+                    .set_receivers_hit(&hip_packet.get_receivers_hit());
                 hip_r2_packet.packet.set_next_header(HIP_IPPROTO_NONE as u8);
                 hip_r2_packet.packet.set_version(HIP_VERSION as u8);
 
@@ -3263,7 +3259,7 @@ impl<'a> HIPDaemon<'a> {
                     ));
                 }
 
-                let byte_len = hip_r2_packet.packet.get_header_length() * 8 + 8;
+                let byte_len = (1 + hip_r2_packet.packet.get_header_length() as usize) * 8;
                 match hmac_alg {
                     0x1 => {
                         if &SHA256HMAC::hmac_256(
@@ -3274,6 +3270,12 @@ impl<'a> HIPDaemon<'a> {
                             .get_hmac2()?
                         {
                             hip_debug!("Invalid HMAC256. Dropping the packet");
+                            hip_debug!(
+                                "hmac_bytes: {:?}",
+                                &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize]
+                            );
+                            hip_debug!("hmac_key: {:?}", hmac_key);
+                            hip_debug!("hmac: {:?}", option_as_ref(hmac_param)?);
                         }
                     }
                     0x2 => {
@@ -3292,20 +3294,19 @@ impl<'a> HIPDaemon<'a> {
 
                 hip_debug!("HMAC is ok. Compute signature");
 
+                let esp_info_param_len = esp_info_param
+                    .ok_or_else(|| HIPError::FieldNotSet)?
+                    .get_length();
                 let hmac_param_len = hmac_param
                     .ok_or_else(|| HIPError::FieldNotSet)?
-                    .inner_ref()
-                    .as_ref()
-                    .len();
-                let hmac_param_bytes = hmac_param
-                    .ok_or_else(|| HIPError::FieldNotSet)?
-                    .inner_ref()
-                    .as_ref();
+                    .get_length();
+                let hmac_param_bytes = hmac_param.ok_or_else(|| HIPError::FieldNotSet)?.as_bytes();
                 let current_r2pkt_len = hip_r2_packet.packet.get_header_length();
                 let pkt_len = current_r2pkt_len as usize * 8 + hmac_param_len;
                 hip_r2_packet.packet.set_header_length((pkt_len / 8) as u8);
                 let mut bytes_to_verify: Vec<u8, U512> = Vec::new();
-                for byte in hip_r2_packet.inner_ref().as_ref()[..HIP_HEADER_LENGTH]
+                for byte in hip_r2_packet.inner_ref().as_ref()
+                    [..HIP_HEADER_LENGTH + esp_info_param_len]
                     .iter()
                     .chain(hmac_param_bytes.iter())
                 {
@@ -3336,10 +3337,21 @@ impl<'a> HIPDaemon<'a> {
                 match pubkey_len {
                     0x20 => {
                         let verifier = ECDSASHA256Signature([0; 32], responder_pubkey256);
-                        let verified =
-                            verifier.verify(&bytes_to_verify[..], option_as_ref(signature_param)?);
+                        let verified = verifier.verify(
+                            &bytes_to_verify[..],
+                            signature_param
+                                .ok_or_else(|| HIPError::SignatureError)?
+                                .get_signature_2()?,
+                        );
                         if !verified? {
                             hip_trace!("Invalid signature in R2 packet. Dropping the packet");
+                            hip_debug!("bytes_to_verify: {:?}", &bytes_to_verify[..]);
+                            hip_debug!(
+                                "signature: {:?}",
+                                signature_param
+                                    .ok_or_else(|| HIPError::SignatureError)?
+                                    .get_signature_2()?
+                            );
                         } else {
                             hip_debug!("Signature is correct");
                         }
@@ -3350,10 +3362,21 @@ impl<'a> HIPDaemon<'a> {
                             EncodedPointP384::from_bytes(responder_pubkey384)
                                 .map_err(|_| HIPError::InvalidEncoding)?,
                         );
-                        let verified =
-                            verifier.verify(&bytes_to_verify[..], option_as_ref(signature_param)?);
+                        let verified = verifier.verify(
+                            &bytes_to_verify[..],
+                            signature_param
+                                .ok_or_else(|| HIPError::SignatureError)?
+                                .get_signature_2()?,
+                        );
                         if !verified? {
                             hip_trace!("Invalid signature in R2 packet. Dropping the packet");
+                            hip_debug!("bytes_to_verify: {:?}", &bytes_to_verify[..]);
+                            hip_debug!(
+                                "signature: {:?}",
+                                signature_param
+                                    .ok_or_else(|| HIPError::SignatureError)?
+                                    .get_signature_2()?
+                            );
                         } else {
                             hip_debug!("Signature is correct");
                         }
@@ -3365,7 +3388,7 @@ impl<'a> HIPDaemon<'a> {
                 keymat_index = esp_info_param.map(|esp_info| esp_info.get_keymat_index());
 
                 hip_debug!("Processing R2 packet");
-                hip_debug!("Ending HIP BEX");
+                hip_debug!("Ending HIP BEX...");
 
                 // hex formatted string of dst IPv6 address
                 let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
@@ -3409,7 +3432,7 @@ impl<'a> HIPDaemon<'a> {
                             &keymat[..keymat_len_octets as usize],
                             keymat_index.ok_or_else(|| HIPError::IncorrectLength)?? as u8,
                             0x1, // hmac256 id
-                            0x4, // aes128 id
+                            0x4, // aes256 id
                             &ihit,
                             &rhit,
                         )?;
@@ -3462,7 +3485,7 @@ impl<'a> HIPDaemon<'a> {
                             &keymat[..keymat_len_octets as usize],
                             keymat_index.ok_or_else(|| HIPError::IncorrectLength)?? as u8,
                             0x1, // hmac256 id
-                            0x4, // aes128 id
+                            0x4, // aes256 id
                             &ihit,
                             &rhit,
                         )?;
@@ -3545,7 +3568,7 @@ impl<'a> HIPDaemon<'a> {
             || hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_closing()
             || hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_closed()
         {
-            hip_debug!("HIP_STATE ==: {:?}", hip_state);
+            hip_debug!("HIP_STATE: {:?}", hip_state);
             hip_debug!("Starting HIP BEX");
             // hip_debug!("");
 
@@ -3627,7 +3650,7 @@ impl<'a> HIPDaemon<'a> {
                     (Some(old_state), Some(new_state)) => **old_state = new_state,
                     (_, _) => {
                         hip_debug!(
-                            "Invalid states reached, prev: {:?}, new: {:?}",
+                            "Invalid states reached, prev: {:?}, current: {:?}",
                             old_hip_state,
                             hip_state
                         );
