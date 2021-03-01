@@ -115,47 +115,25 @@ impl Utils {
                     (_, _) => Err(HIPError::IncorrectLength),
                 }
             }
-            (Some(ihit), None) => match ihit.len() {
-                0x10 => {
-                    let mut key_string: String<U40> = String::new();
-                    let _temp = ihit.iter().enumerate().for_each(|(i, byte)| {
-                        key_string
-                            .push(HEX_CHARS_LOWER[(byte >> 4) as usize] as char)
-                            .and_then(|_| {
-                                key_string.push(HEX_CHARS_LOWER[(byte & 0x0F) as usize] as char)
-                            });
-                        if i == 1 {
-                            key_string.push(':')
-                        } else if i > 1 && ((i - 1) % 2) == 0 {
-                            key_string.push(':')
-                        } else {
-                            Ok(())
-                        };
-                    });
-                    key_string.pop();
-                    Ok(HeaplessStringTypes::U32(key_string))
-                }
-                0x4 => {
-                    let mut key_string: String<U10> = String::new();
-                    let _temp = ihit.iter().enumerate().for_each(|(i, byte)| {
-                        key_string
-                            .push(HEX_CHARS_LOWER[(byte >> 4) as usize] as char)
-                            .and_then(|_| {
-                                key_string.push(HEX_CHARS_LOWER[(byte & 0x0F) as usize] as char)
-                            });
-                        if i == 1 {
-                            key_string.push(':')
-                        } else if i > 1 && ((i - 1) % 2) == 0 {
-                            key_string.push(':')
-                        } else {
-                            Ok(())
-                        };
-                    });
-                    key_string.pop();
-                    Ok(HeaplessStringTypes::U8(key_string))
-                }
-                _ => Err(HIPError::IncorrectLength),
-            },
+            (Some(ihit), None) => {
+                let mut key_string: String<U40> = String::new();
+                let _temp = ihit.iter().enumerate().for_each(|(i, byte)| {
+                    key_string
+                        .push(HEX_CHARS_LOWER[(byte >> 4) as usize] as char)
+                        .and_then(|_| {
+                            key_string.push(HEX_CHARS_LOWER[(byte & 0x0F) as usize] as char)
+                        });
+                    if i == 1 {
+                        key_string.push(':')
+                    } else if i > 1 && ((i - 1) % 2) == 0 {
+                        key_string.push(':')
+                    } else {
+                        Ok(())
+                    };
+                });
+                key_string.pop();
+                Ok(HeaplessStringTypes::U32(key_string))
+            }
             (None, Some(rhit)) => {
                 let mut key_string: String<U40> = String::new();
                 let _temp = rhit.iter().enumerate().for_each(|(i, byte)| {

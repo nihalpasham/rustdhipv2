@@ -106,12 +106,12 @@ impl<'a> HIPDaemon<'a> {
         };
 
         if protocol as usize != HIP_PROTOCOL {
-            hip_debug!("Invalid protocol type {:?}", protocol);
+            hip_debug!("#msg: invalid protocol type {:?}", protocol);
         }
 
         // All HIP packets are a multiple of 8 bytes.
         if ipv4_packet.payload().len() % 8 != 0 {
-            hip_debug!("Invalid payload. HIP payload (i.e. packet) must be a multiple of 8 bytes");
+            hip_debug!("#msg: invalid payload. HIP payload (i.e. packet) must be a multiple of 8 bytes");
         }
 
         let hip_packet = HIPPacket::new_checked(ipv4_packet.payload())?;
@@ -120,33 +120,34 @@ impl<'a> HIPDaemon<'a> {
         let mut hip_state = None;
 
         let is_hit_smaller = Utils::is_hit_smaller(&ihit, &rhit);
+
         // Get the key from the `hip_state_machine` and if it doesn't exist, add one.
         if is_hit_smaller {
-            hip_debug!("ihit < rhit {}", is_hit_smaller);
+            hip_debug!("#msg::(ihit < rhit)=={}", is_hit_smaller);
             self.hip_state_machine
                 .get(&rhit, &ihit)?
                 .and_then(|state| Some(hip_state = Some(*state)));
         } else {
-            hip_debug!("ihit < rhit {}", is_hit_smaller);
+            hip_debug!("#msg::(ihit < rhit)=={}", is_hit_smaller);
             self.hip_state_machine
                 .get(&ihit, &rhit)?
                 .and_then(|state| Some(hip_state = Some(*state)));
         }
         if hip_packet.get_version() as usize != HIP_VERSION {
-            hip_trace!("Only HIP version 2 is supported");
+            hip_trace!("#msg: only HIP version 2 is supported");
         }
 
         // Check if the `responders HIT` is our hit or if its a null HIT.
         if !Utils::hits_equal(&rhit, &self.hit_as_bytes) && !Utils::hits_equal(&rhit, &[0; 16]) {
-            hip_debug!("Not our HIT");
+            hip_debug!("#msg: not our HIT");
             hip_debug!(
-                "rhit: {:?}",
+                "#msg: rhit: {:?}",
                 Utils::hex_formatted_hit_bytes(None, Some(&rhit))
                     .unwrap()
                     .as_str()
             );
             hip_debug!(
-                "own_hit: {:?}",
+                "#msg: own_hit: {:?}",
                 Utils::hex_formatted_hit_bytes(Some(&self.hit_as_bytes), None)
                     .unwrap()
                     .as_str()
@@ -170,12 +171,12 @@ impl<'a> HIPDaemon<'a> {
             &rec_hip_packet[..],
         );
         if original_checksum != computed_checksum {
-            hip_trace!("Invalid checksum");
+            hip_trace!("#msg: invalid checksum");
         }
 
         match hip_packet.get_packet_type() as usize {
             HIP_I1_PACKET => {
-                hip_debug!("Received I1 Packet");
+                hip_debug!("#rmsg: *****got I1 Packet*****");
 
                 if hip_state
                     .ok_or_else(|| HIPError::InvalidState)?
@@ -276,7 +277,7 @@ impl<'a> HIPDaemon<'a> {
                 });
 
                 if rec_dh_grouplist.is_none() {
-                    hip_debug!("DH groups parameter NOT found. Dropping I1 packet");
+                    hip_debug!("#rmsg: DH groups parameter NOT found, dropping I1 packet...");
                 }
 
                 let dhlist_param = rec_dh_grouplist.ok_or_else(|| HIPError::FieldNotSet)?;
@@ -292,7 +293,7 @@ impl<'a> HIPDaemon<'a> {
                     }
                 }
                 if selected_dh_group == None {
-                    hip_debug!("Unsupported DH groups");
+                    hip_debug!("#rmsg: unsupported DH groups");
                 }
 
                 let dhtypes =
@@ -646,16 +647,16 @@ impl<'a> HIPDaemon<'a> {
                     &hip_r1_packet.inner_ref().as_ref()[..ipv4_payload_len as usize],
                 );
 
-                hip_debug!("Sending R1 packet");
+                hip_debug!("#rmsg: sending [R1] packet");
                 if hip_socket.can_send() {
                     hip_socket.send_slice(ipv4_packet.as_ref());
                 } else {
-                    hip_trace!("failed to send R1 packet");
+                    hip_trace!("#rmsg: failed to send [R1] packet");
                 }
             }
 
             HIP_R1_PACKET => {
-                hip_debug!("#imsg: received [R1] packet");
+                hip_debug!("#imsg: *****got [R1] packet*****");
 
                 if hip_state
                     .ok_or_else(|| HIPError::InvalidState)?
@@ -724,18 +725,19 @@ impl<'a> HIPDaemon<'a> {
                     _ => return Err(HIPError::__Nonexhaustive),
                 };
 
+                hip_debug!("[R1] packet contains");
                 let param_list = parameters.ok_or_else(|| HIPError::FieldNotSet)?;
                 param_list.iter().for_each(|param| match param {
                     HIPParamsTypes::DHGroupListParam(val) => {
-                        hip_debug!("DH groups parameter");
+                        hip_debug!("    |__ + DH groups parameter");
                         dh_groups_param = Some(val);
                     }
                     HIPParamsTypes::R1Counter(val) => {
-                        hip_debug!("R1 Counter parameter");
+                        hip_debug!("    |__ + R1 Counter parameter");
                         r1_counter_param = Some(val);
                     }
                     HIPParamsTypes::PuzzleParam(val) => {
-                        hip_debug!("Puzzle parameter");
+                        hip_debug!("    |__ + Puzzle parameter");
                         puzzle_param = Some(val);
                         irandom = puzzle_param.map(|param| param.get_random(rhash_len));
                         opaque = puzzle_param.map(|param| param.get_opaque());
@@ -748,18 +750,18 @@ impl<'a> HIPDaemon<'a> {
                         copy_of_puzzle_param = Some(param);
                     }
                     HIPParamsTypes::DHParam(val) => {
-                        hip_debug!("DH parameter");
+                        hip_debug!("    |__ + DH parameter");
                         dh_param = Some(val);
                     }
                     HIPParamsTypes::HostIdParam(val) => {
-                        hip_debug!("Host ID");
+                        hip_debug!("    |__ + Host Id parameter");
                         hi_param = Some(val);
                         if Some(hi_param.map(|param| param.get_algorithm()))
                             == Some(Some(Ok(0x7 as u16)))
                         {
                             let responder_hi = hi_param.map(|param| param.get_host_id());
                             let oga = HIT::get_responders_oga_id(&ihit);
-                            hip_debug!("#imsg: responder's OGA id 0x{}", oga);
+                            hip_debug!("        |__ + responder's OGA id 0x{}", oga);
                             // hip_debug!("Responder HI: {:?}", responder_hi);
                             let hi = match responder_hi {
                                 Some(Ok(val)) => val,
@@ -771,22 +773,22 @@ impl<'a> HIPDaemon<'a> {
                             match hi[0..2] {
                                 [0, 1] => {
                                     let responders_hit = HIT::compute_hit::<82>(hi, oga);
-                                    hip_debug!("#imsg: responder's computed HIT: {:?}", responders_hit);
-                                    hip_debug!("#imsg: responder's actual HIT:   {:?}", &ihit);
-                                    hip_debug!("#imsg: self HIT:                 {:?}", self.hit_as_bytes);
+                                    hip_debug!("        |__ + responder's computed HIT: {:?}", responders_hit);
+                                    hip_debug!("        |__ + responder's actual HIT:   {:?}", &ihit);
+                                    hip_debug!("        |__ + self HIT:                 {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &responders_hit) {
-                                        hip_trace!("Invalid HIT");
+                                        hip_trace!("#imsg: invalid HIT");
                                         panic!(
-                                            "Invalid HIT {:?}, responder_hit: {:?}",
+                                            "#imsg: invalid HIT {:?}, responder_hit: {:?}",
                                             &ihit, &responders_hit
                                         );
                                     }
                                 }
                                 [0, 2] => {
                                     let responders_hit = HIT::compute_hit::<114>(hi, oga);
-                                    hip_debug!("#imsg: responder's computed HIT: {:?}", responders_hit);
-                                    hip_debug!("#imsg: responder's actual HIT:   {:?}", &ihit);
-                                    hip_debug!("#imsg: self HIT:                 {:?}", self.hit_as_bytes);
+                                    hip_debug!("        |__ + responder's computed HIT: {:?}", responders_hit);
+                                    hip_debug!("        |__ + responder's actual HIT:   {:?}", &ihit);
+                                    hip_debug!("        |__ + self HIT:                 {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &responders_hit) {
                                         hip_trace!("#imsg: invalid HIT");
                                         panic!(
@@ -840,33 +842,33 @@ impl<'a> HIPDaemon<'a> {
                         }
                     }
                     HIPParamsTypes::HITSuitListParam(val) => {
-                        hip_debug!("HIT Suit list parameter");
+                        hip_debug!("    |__ + HIT Suit list parameter");
                         hit_suit_param = Some(val);
                     }
                     HIPParamsTypes::TransportListParam(val) => {
-                        hip_debug!("Transport parameter");
-                        hip_debug!("Transport formats: {:?}", val.get_transport_formats());
+                        hip_debug!("    |__ + Transport parameter");
+                        hip_debug!("        |__ + Transport formats: {:?}", val.get_transport_formats());
                         transport_param = Some(val);
                     }
                     HIPParamsTypes::Signature2Param(val) => {
-                        hip_debug!("Signature parameter");
+                        hip_debug!("    |__ + Signature parameter");
                         signature_param = Some(val);
                     }
                     HIPParamsTypes::EchoRequestSignedParam(val) => {
-                        hip_debug!("Echo request signed parameter");
+                        hip_debug!("    |__ + Echo request signed parameter");
                         // let mut echo_signed = EchoResponseSignedParameter::new_checked([0; 100]);
                         echo_request_signed_opaque_data = Some(val.get_opaque_data());
                     }
                     HIPParamsTypes::EchoRequestUnsignedParam(val) => {
-                        hip_debug!("Echo request unsigned parameter");
+                        hip_debug!("    |__ + Echo request unsigned parameter");
                         echo_request_unisgned_opaque_data = Some(val.get_opaque_data());
                     }
                     HIPParamsTypes::CipherParam(val) => {
-                        hip_debug!("Cipher Parameter");
+                        hip_debug!("    |__ + Cipher Parameter");
                         cipher_param = Some(val);
                     }
                     HIPParamsTypes::ESPTransformParam(val) => {
-                        hip_debug!("ESP Transform Parameter");
+                        hip_debug!("    |__ + ESP Transform Parameter");
                         esp_transform_param = Some(val);
                     }
                     _ => (),
@@ -924,7 +926,7 @@ impl<'a> HIPDaemon<'a> {
                         &rhash,
                     );
                     jrandom = jrand.try_into().map_err(|_| HIPError::__Nonexhaustive)?;
-                    hip_debug!("Puzzle was solved");
+                    hip_debug!("#imsg: puzzle was solved");
                 }
                 // Check if the time taken to solve the puzzle is greater than the `timer duration`.
                 // If yes, drop the packet and set state to unassociated.
@@ -2036,7 +2038,7 @@ impl<'a> HIPDaemon<'a> {
             }
 
             HIP_I2_PACKET => {
-                hip_debug!("#rmsg: received I2 packet");
+                hip_debug!("#rmsg: *****got I2 packet*****");
 
                 let mut solution_param = None;
                 let mut r1_counter_param = None;
@@ -2077,51 +2079,52 @@ impl<'a> HIPDaemon<'a> {
                     _ => return Err(HIPError::__Nonexhaustive),
                 };
 
+                hip_debug!("[I2] packet contains: ");
                 let param_list = parameters.ok_or_else(|| HIPError::FieldNotSet)?;
                 param_list.iter().for_each(|param| match param {
                     HIPParamsTypes::ESPInfoParam(val) => {
-                        hip_debug!("ESP Info parameter");
+                        hip_debug!("    |__ + ESP Info parameter");
                         esp_info_param = Some(val);
                     }
                     HIPParamsTypes::R1Counter(val) => {
-                        hip_debug!("R1 Counter parameter");
+                        hip_debug!("    |__ + R1 Counter parameter");
                         r1_counter_param = Some(val);
                     }
                     HIPParamsTypes::SolutionParam(val) => {
-                        hip_debug!("Solution parameter");
+                        hip_debug!("    |__ + Solution parameter");
                         solution_param = Some(val);
                     }
                     HIPParamsTypes::DHParam(val) => {
-                        hip_debug!("DH parameter");
+                        hip_debug!("    |__ + DH parameter");
                         dh_param = Some(val);
                     }
                     HIPParamsTypes::EncryptedParam(val) => {
-                        hip_debug!("Encrypyted parameter");
+                        hip_debug!("    |__ + Encrypyted parameter");
                         encrypted_param = Some(val);
                     }
                     HIPParamsTypes::HostIdParam(val) => {
-                        hip_debug!("Host ID");
+                        hip_debug!("    |__ + Host Id parameter contains:");
                         hi_param = Some(val);
                         if Some(hi_param.map(|param| param.get_algorithm()))
                             == Some(Some(Ok(0x7 as u16)))
                         {
                             let initiator_hi = hi_param.map(|param| param.get_host_id());
                             let oga = HIT::get_responders_oga_id(&ihit);
-                            hip_debug!("#rmsg: initiator's OGA id 0x{:?}", oga);
+                            hip_debug!("        |__ + initiator's OGA id 0x{:?}", oga);
                             // hip_debug!("Initiator's HI: {:?}", initiator_hi);
                             let hi = match initiator_hi {
                                 Some(Ok(val)) => val,
                                 _ => {
-                                    hip_debug!("Hostid missing");
+                                    hip_debug!("#rmsg: Hostid missing");
                                     &[]
                                 }
                             };
                             match hi[0..2] {
                                 [0, 1] => {
                                     let initiators_hit = HIT::compute_hit::<82>(hi, oga);
-                                    hip_debug!("#rmsg: initiator's computed HIT: {:?}", initiators_hit);
-                                    hip_debug!("#rmsg: initiator's actual HIT:   {:?}", &ihit);
-                                    hip_debug!("#rmsg: self HIT:                 {:?}", self.hit_as_bytes);
+                                    hip_debug!("        |__ + initiator's computed HIT: {:?}", initiators_hit);
+                                    hip_debug!("        |__ + initiator's actual HIT:   {:?}", &ihit);
+                                    hip_debug!("        |__ + self HIT:                 {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &initiators_hit) {
                                         hip_trace!("#rmsg: invalid HIT");
                                         panic!(
@@ -2132,9 +2135,9 @@ impl<'a> HIPDaemon<'a> {
                                 }
                                 [0, 2] => {
                                     let initiators_hit = HIT::compute_hit::<114>(hi, oga);
-                                    hip_debug!("#rmsg: initiator's computed HIT: {:?}", initiators_hit);
-                                    hip_debug!("#rmsg: initiator's actual HIT:   {:?}", &ihit);
-                                    hip_debug!("#rmsg: self HIT:                 {:?}", self.hit_as_bytes);
+                                    hip_debug!("        |__ + initiator's computed HIT: {:?}", initiators_hit);
+                                    hip_debug!("        |__ + initiator's actual HIT:   {:?}", &ihit);
+                                    hip_debug!("        |__ + self HIT:                 {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &initiators_hit) {
                                         hip_trace!("#rmsg: invalid HIT");
                                         panic!(
@@ -2186,28 +2189,28 @@ impl<'a> HIPDaemon<'a> {
                         }
                     }
                     HIPParamsTypes::TransportListParam(val) => {
-                        hip_debug!("Transport parameter");
-                        hip_debug!("Transport formats: {:?}", val.get_transport_formats());
+                        hip_debug!("    |__ + Transport parameter");
+                        hip_debug!("        |__ + Transport formats: {:?}", val.get_transport_formats());
                         transport_param = Some(val);
                     }
                     HIPParamsTypes::SignatureParam(val) => {
-                        hip_debug!("Signature parameter");
+                        hip_debug!("    |__ + Signature parameter");
                         signature_param = Some(val);
                     }
                     HIPParamsTypes::CipherParam(val) => {
-                        hip_debug!("Cipher parameter");
+                        hip_debug!("    |__ + Cipher parameter");
                         cipher_param = Some(val);
                     }
                     HIPParamsTypes::ESPTransformParam(val) => {
-                        hip_debug!("ESP Transform parameter");
+                        hip_debug!("    |__ + ESP Transform parameter");
                         esp_transform_param = Some(val);
                     }
                     HIPParamsTypes::MACParam(val) => {
-                        hip_debug!("MAC Parameter");
+                        hip_debug!("    |__ + MAC Parameter");
                         mac_param = Some(val);
                     }
                     HIPParamsTypes::EchoResponseSignedParam(val) => {
-                        hip_debug!("Echo Response Signed Parameter");
+                        hip_debug!("    |__ + Echo Response Signed Parameter");
                         echo_signed = Some(val);
                     }
                     _ => (),
@@ -3161,7 +3164,7 @@ impl<'a> HIPDaemon<'a> {
                     hip_debug!("#imsg: dropping the packet {:?}", hip_state.unwrap());
                 }
 
-                hip_debug!("#imsg: got [R2] Packet");
+                hip_debug!("#imsg: *****got [R2] Packet*****");
 
                 let mut cipher_alg = 0;
                 let mut keymat = [0u8; 800];
@@ -3222,17 +3225,18 @@ impl<'a> HIPDaemon<'a> {
                 let mut responders_spi = None;
                 let mut keymat_index = None;
 
+                hip_debug!("[R2] packet contains:");
                 param_list.iter().for_each(|param| match param {
                     HIPParamsTypes::ESPInfoParam(val) => {
-                        hip_debug!("ESP Info parameter");
+                        hip_debug!("    |__ + ESP Info parameter");
                         esp_info_param = Some(val);
                     }
                     HIPParamsTypes::MAC2Param(val) => {
-                        hip_debug!("Mac2 parameter");
+                        hip_debug!("    |__ + Mac2 parameter");
                         hmac_param = Some(val);
                     }
                     HIPParamsTypes::Signature2Param(val) => {
-                        hip_debug!("Signature2 parameter");
+                        hip_debug!("    |__ + Signature2 parameter");
                         signature_param = Some(val);
                     }
                     _ => {}
@@ -3397,7 +3401,7 @@ impl<'a> HIPDaemon<'a> {
                 // let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
                 // let src_str = Utils::hex_formatted_hit_bytes(Some(&src.0), None)?;
 
-                hip_debug!("#imsg: setting SA records for...  {} <-> {}", &dst, &src);
+                hip_debug!("#imsg: setting SA records for...  {} <=> {}", &dst, &src);
 
                 let (cipher, hmac) = ESPTransformFactory::get(
                     self.selected_esp_transform
@@ -3554,13 +3558,13 @@ impl<'a> HIPDaemon<'a> {
 
         // Get the key from the `hip_state_machine`. If it doesn't exist, add one.
         if is_hit_smaller {
-            hip_debug!("ihit < rhit {}", is_hit_smaller);
+            hip_debug!("#imsg::(ihit < rhit)=={}", is_hit_smaller);
             self.hip_state_machine.get(&rhit, &ihit)?.and_then(|state| {
                 hip_state = Some(*state);
                 hip_state
             });
         } else {
-            hip_debug!("ihit < rhit {}", is_hit_smaller);
+            hip_debug!("#imsg::(ihit < rhit)=={}", is_hit_smaller);
             self.hip_state_machine.get(&ihit, &rhit)?.and_then(|state| {
                 hip_state = Some(*state);
                 hip_state
@@ -3578,8 +3582,7 @@ impl<'a> HIPDaemon<'a> {
 
             // HIP DH Groups Parameter. An 11 packet with a 12-byte DH Groups parameter
             // i.e. we're only interested in 3 groups ECDHNIST384 (0x8), ECDHNIST256 (0x7), ECDHSECP160R1 (0xa)
-            let mut dhgroups_param = DHGroupListParameter::new_checked([0; 16])?;
-            dhgroups_param.init_dhgrouplist_param();
+            let mut dhgroups_param = DHGroupListParameter::new_checked_mut([0; 16])?;
             dhgroups_param.set_groups(&[0x00, 0x7, 0x00, 0x8, 0x00, 0xa]);
 
             // Construct a new I1 Packet
@@ -3662,7 +3665,7 @@ impl<'a> HIPDaemon<'a> {
                     }
                 }
 
-                hip_debug!("{:?}", self.hip_state_machine.keys());
+                // hip_debug!("{:?}", self.hip_state_machine.keys());
                 // Update State_Variables
                 self.state_vars_map.save(
                     &rhit,

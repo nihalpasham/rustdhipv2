@@ -25,9 +25,6 @@ use std::os::unix::io::AsRawFd;
 use std::str::FromStr;
 use std::{collections::BTreeMap, convert::TryInto};
 
-// use heapless::{consts::*, Vec};
-
-
 fn main() {
     utils::setup_logging("");
 
