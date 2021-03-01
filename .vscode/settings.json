@@ -1,0 +1,4 @@
+{
+    "git.ignoreLimitWarning": true,
+    "terminal.integrated.inheritEnv": true,
+}

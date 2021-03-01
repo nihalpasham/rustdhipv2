@@ -5,17 +5,19 @@
             "type": "lldb",
             "request": "launch",
             "name": "hip_initiator (Debug)",
-            "program": "./target/debug/examples/hip_initiator",
+            "program": "${workspaceFolder}/target/debug/examples/hip_initiator",
             "args": [],
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "cargo build initiator",
         },
         {
             "type": "lldb",
             "request": "launch",
             "name": "hip_responder (Debug)",
-            "program": "./target/debug/examples/hip_responder",
+            "program": "${workspaceFolder}/target/debug/examples/hip_responder",
             "args": [],
-            "cwd": "${workspaceFolder}"
-        }
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "cargo build responder",
+        },
     ]
 }
