@@ -111,7 +111,9 @@ impl<'a> HIPDaemon<'a> {
 
         // All HIP packets are a multiple of 8 bytes.
         if ipv4_packet.payload().len() % 8 != 0 {
-            hip_debug!("#msg: invalid payload. HIP payload (i.e. packet) must be a multiple of 8 bytes");
+            hip_debug!(
+                "#msg: invalid payload. HIP payload (i.e. packet) must be a multiple of 8 bytes"
+            );
         }
 
         let hip_packet = HIPPacket::new_checked(ipv4_packet.payload())?;
@@ -675,7 +677,10 @@ impl<'a> HIPDaemon<'a> {
                     hip_debug!("#imsg: state_machine: {:?}", self.hip_state_machine.keys());
                 }
 
-                hip_debug!("#ista: hip_state::[current state: {:?}]", hip_state.unwrap());
+                hip_debug!(
+                    "#ista: hip_state::[current state: {:?}]",
+                    hip_state.unwrap()
+                );
 
                 let oga_id = HIT::get_responders_oga_id(&rhit);
                 let oga = oga_id << 4;
@@ -773,9 +778,18 @@ impl<'a> HIPDaemon<'a> {
                             match hi[0..2] {
                                 [0, 1] => {
                                     let responders_hit = HIT::compute_hit::<82>(hi, oga);
-                                    hip_debug!("        |__ + responder's computed HIT: {:?}", responders_hit);
-                                    hip_debug!("        |__ + responder's actual HIT:   {:?}", &ihit);
-                                    hip_debug!("        |__ + self HIT:                 {:?}", self.hit_as_bytes);
+                                    hip_debug!(
+                                        "        |__ + responder's computed HIT: {:?}",
+                                        responders_hit
+                                    );
+                                    hip_debug!(
+                                        "        |__ + responder's actual HIT:   {:?}",
+                                        &ihit
+                                    );
+                                    hip_debug!(
+                                        "        |__ + self HIT:                 {:?}",
+                                        self.hit_as_bytes
+                                    );
                                     if !Utils::hits_equal(&ihit, &responders_hit) {
                                         hip_trace!("#imsg: invalid HIT");
                                         panic!(
@@ -786,9 +800,18 @@ impl<'a> HIPDaemon<'a> {
                                 }
                                 [0, 2] => {
                                     let responders_hit = HIT::compute_hit::<114>(hi, oga);
-                                    hip_debug!("        |__ + responder's computed HIT: {:?}", responders_hit);
-                                    hip_debug!("        |__ + responder's actual HIT:   {:?}", &ihit);
-                                    hip_debug!("        |__ + self HIT:                 {:?}", self.hit_as_bytes);
+                                    hip_debug!(
+                                        "        |__ + responder's computed HIT: {:?}",
+                                        responders_hit
+                                    );
+                                    hip_debug!(
+                                        "        |__ + responder's actual HIT:   {:?}",
+                                        &ihit
+                                    );
+                                    hip_debug!(
+                                        "        |__ + self HIT:                 {:?}",
+                                        self.hit_as_bytes
+                                    );
                                     if !Utils::hits_equal(&ihit, &responders_hit) {
                                         hip_trace!("#imsg: invalid HIT");
                                         panic!(
@@ -847,7 +870,10 @@ impl<'a> HIPDaemon<'a> {
                     }
                     HIPParamsTypes::TransportListParam(val) => {
                         hip_debug!("    |__ + Transport parameter");
-                        hip_debug!("        |__ + Transport formats: {:?}", val.get_transport_formats());
+                        hip_debug!(
+                            "        |__ + Transport formats: {:?}",
+                            val.get_transport_formats()
+                        );
                         transport_param = Some(val);
                     }
                     HIPParamsTypes::Signature2Param(val) => {
@@ -932,10 +958,16 @@ impl<'a> HIPDaemon<'a> {
                 // If yes, drop the packet and set state to unassociated.
                 let elapsed_time = timer.get_elapsed_time().ok_or_else(|| HIPError::TimeOut)?;
                 if elapsed_time > timer.duration {
-                    hip_debug!("imsg: maximum time to solve the puzzle exceeded. Dropping the packet...");
+                    hip_debug!(
+                        "imsg: maximum time to solve the puzzle exceeded. Dropping the packet..."
+                    );
                     hip_state = hip_state.map(|state| state.unassociated());
                 }
-                hip_debug!("#imsg: time_taken: {} < timer_duration: {}", elapsed_time, timer.duration);
+                hip_debug!(
+                    "#imsg: time_taken: {} < timer_duration: {}",
+                    elapsed_time,
+                    timer.duration
+                );
 
                 // Echo Response Signed Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
                 let mut echo_signed = EchoResponseSignedParameter::new_checked_mut([0; 36])?;
@@ -1979,11 +2011,11 @@ impl<'a> HIPDaemon<'a> {
                 // hex formatted string of dst IPv6 address
                 // let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
                 // if let HeaplessStringTypes::U32(val) = dst_str {
-                    hip_debug!(
-                        "#imsg: sending [I2] packet to {}, bytes sent {:?}",
-                        &dst,
-                        &ipv4_packet.total_len()
-                    );
+                hip_debug!(
+                    "#imsg: sending [I2] packet to {}, bytes sent {:?}",
+                    &dst,
+                    &ipv4_packet.total_len()
+                );
                 // }
 
                 if hip_socket.can_send() {
@@ -2024,7 +2056,10 @@ impl<'a> HIPDaemon<'a> {
                     // Update HIP StateMachine
                     let mut old_hip_state = self.hip_state_machine.get_mut(&ihit, &rhit)?;
                     match (&mut old_hip_state, hip_state) {
-                        (Some(old_state), Some(new_state)) => **old_state = new_state,
+                        (Some(old_state), Some(new_state)) => {
+                            hip_debug!("#ista: hip_state::[{}]=>[{}]", old_state, new_state);
+                            **old_state = new_state;
+                        }
                         (_, _) => {
                             hip_debug!(
                                 "#ista: hip_state::[prev: {:?}]=>[current: {:?}], invalid state reached",
@@ -2122,9 +2157,18 @@ impl<'a> HIPDaemon<'a> {
                             match hi[0..2] {
                                 [0, 1] => {
                                     let initiators_hit = HIT::compute_hit::<82>(hi, oga);
-                                    hip_debug!("        |__ + initiator's computed HIT: {:?}", initiators_hit);
-                                    hip_debug!("        |__ + initiator's actual HIT:   {:?}", &ihit);
-                                    hip_debug!("        |__ + self HIT:                 {:?}", self.hit_as_bytes);
+                                    hip_debug!(
+                                        "        |__ + initiator's computed HIT: {:?}",
+                                        initiators_hit
+                                    );
+                                    hip_debug!(
+                                        "        |__ + initiator's actual HIT:   {:?}",
+                                        &ihit
+                                    );
+                                    hip_debug!(
+                                        "        |__ + self HIT:                 {:?}",
+                                        self.hit_as_bytes
+                                    );
                                     if !Utils::hits_equal(&ihit, &initiators_hit) {
                                         hip_trace!("#rmsg: invalid HIT");
                                         panic!(
@@ -2135,9 +2179,18 @@ impl<'a> HIPDaemon<'a> {
                                 }
                                 [0, 2] => {
                                     let initiators_hit = HIT::compute_hit::<114>(hi, oga);
-                                    hip_debug!("        |__ + initiator's computed HIT: {:?}", initiators_hit);
-                                    hip_debug!("        |__ + initiator's actual HIT:   {:?}", &ihit);
-                                    hip_debug!("        |__ + self HIT:                 {:?}", self.hit_as_bytes);
+                                    hip_debug!(
+                                        "        |__ + initiator's computed HIT: {:?}",
+                                        initiators_hit
+                                    );
+                                    hip_debug!(
+                                        "        |__ + initiator's actual HIT:   {:?}",
+                                        &ihit
+                                    );
+                                    hip_debug!(
+                                        "        |__ + self HIT:                 {:?}",
+                                        self.hit_as_bytes
+                                    );
                                     if !Utils::hits_equal(&ihit, &initiators_hit) {
                                         hip_trace!("#rmsg: invalid HIT");
                                         panic!(
@@ -2190,7 +2243,10 @@ impl<'a> HIPDaemon<'a> {
                     }
                     HIPParamsTypes::TransportListParam(val) => {
                         hip_debug!("    |__ + Transport parameter");
-                        hip_debug!("        |__ + Transport formats: {:?}", val.get_transport_formats());
+                        hip_debug!(
+                            "        |__ + Transport formats: {:?}",
+                            val.get_transport_formats()
+                        );
                         transport_param = Some(val);
                     }
                     HIPParamsTypes::SignatureParam(val) => {
@@ -2337,9 +2393,15 @@ impl<'a> HIPDaemon<'a> {
                     _ => unimplemented!(),
                 };
                 if ss256.is_some() {
-                    hip_debug!("#rdbg: shared secret_key, {} bytes", ss256.clone().unwrap().to_bytes().len());
+                    hip_debug!(
+                        "#rdbg: shared secret_key, {} bytes",
+                        ss256.clone().unwrap().to_bytes().len()
+                    );
                 } else if ss384.is_some() {
-                    hip_debug!("#rdbg: shared secret_key, {} bytes", ss384.clone().unwrap().to_bytes().len());
+                    hip_debug!(
+                        "#rdbg: shared secret_key, {} bytes",
+                        ss384.clone().unwrap().to_bytes().len()
+                    );
                 }
 
                 // A 64 byte salt for the HBKDF from the concatenated irandom + jrandom values
@@ -2501,7 +2563,10 @@ impl<'a> HIPDaemon<'a> {
                                 let initiators_hit = HIT::compute_hit::<82>(hi, oga);
                                 hip_debug!("#rmsg: initiator's computed HIT: {:?}", initiators_hit);
                                 hip_debug!("#rmsg: initiator's actual HIT:   {:?}", &ihit);
-                                hip_debug!("#rmsg: self HIT:                 {:?}", self.hit_as_bytes);
+                                hip_debug!(
+                                    "#rmsg: self HIT:                 {:?}",
+                                    self.hit_as_bytes
+                                );
                                 if !Utils::hits_equal(&ihit, &initiators_hit) {
                                     hip_trace!("Invalid HIT");
                                     panic!(
@@ -2514,7 +2579,10 @@ impl<'a> HIPDaemon<'a> {
                                 let initiators_hit = HIT::compute_hit::<114>(hi, oga);
                                 hip_debug!("#rmsg: initiator's computed HIT: {:?}", initiators_hit);
                                 hip_debug!("#rmsg: initiator's actual HIT:   {:?}", &ihit);
-                                hip_debug!("#rmsg: self HIT:                 {:?}", self.hit_as_bytes);
+                                hip_debug!(
+                                    "#rmsg: self HIT:                 {:?}",
+                                    self.hit_as_bytes
+                                );
                                 if !Utils::hits_equal(&ihit, &initiators_hit) {
                                     hip_trace!("#rmsg: invalid HIT");
                                     panic!(
@@ -2703,7 +2771,8 @@ impl<'a> HIPDaemon<'a> {
                             if !verified? {
                                 hip_trace!("#rmsg: invalid signature in [I2] packet, dropping the packet...");
                                 hip_debug!("#rmsg: bytes_to_verify: {:?}", &bytes_to_verify[..]);
-                                hip_debug!("#rmsg: signature:       {:?}",
+                                hip_debug!(
+                                    "#rmsg: signature:       {:?}",
                                     signature_param.unwrap().get_signature()?
                                 );
                             } else {
@@ -2727,7 +2796,8 @@ impl<'a> HIPDaemon<'a> {
                             if !verified? {
                                 hip_debug!("#rmsg: invalid signature in [I2] packet, dropping the packet...");
                                 hip_debug!("#rmsg: bytes_to_verify: {:?}", &bytes_to_verify[..]);
-                                hip_debug!("#rmsg: signature:       {:?}",
+                                hip_debug!(
+                                    "#rmsg: signature:       {:?}",
                                     signature_param.unwrap().get_signature()?
                                 );
                             } else {
@@ -2963,7 +3033,10 @@ impl<'a> HIPDaemon<'a> {
                 // let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
                 // let src_str = Utils::hex_formatted_hit_bytes(Some(&src.0), None)?;
 
-                hip_debug!("#ista: hip_state::[current state: {:?}]", hip_state.unwrap());
+                hip_debug!(
+                    "#ista: hip_state::[current state: {:?}]",
+                    hip_state.unwrap()
+                );
                 if hip_state
                     .ok_or_else(|| HIPError::__Nonexhaustive)?
                     .is_established()
@@ -2990,7 +3063,10 @@ impl<'a> HIPDaemon<'a> {
                     // Update HIP StateMachine
                     let mut old_hip_state = self.hip_state_machine.get_mut(&rhit, &ihit)?;
                     match (&mut old_hip_state, hip_state) {
-                        (Some(old_state), Some(new_state)) => **old_state = new_state,
+                        (Some(old_state), Some(new_state)) => {
+                            hip_debug!("#ista: hip_state::[{}]=>[{}]", old_state, new_state);
+                            **old_state = new_state;
+                        }
                         (_, _) => {
                             hip_debug!(
                                 "#ista: hip_state::[prev: {:?}]=>[current: {:?}], invalid state reached",
@@ -3002,11 +3078,11 @@ impl<'a> HIPDaemon<'a> {
                     }
 
                     // if let HeaplessStringTypes::U32(val) = dst_str {
-                        hip_debug!(
-                            "#rmsg: sending [R2] packet to {}, bytes sent {:?}",
-                            &dst,
-                            &ipv4_packet.total_len()
-                        );
+                    hip_debug!(
+                        "#rmsg: sending [R2] packet to {}, bytes sent {:?}",
+                        &dst,
+                        &ipv4_packet.total_len()
+                    );
                     // }
 
                     if hip_socket.can_send() {
@@ -3279,7 +3355,8 @@ impl<'a> HIPDaemon<'a> {
                             .get_hmac2()?
                         {
                             hip_debug!("#imsg: invalid HMAC256, dropping the packet...");
-                            hip_debug!("#imsg: hmac_bytes: {:?}",
+                            hip_debug!(
+                                "#imsg: hmac_bytes: {:?}",
                                 &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize]
                             );
                             hip_debug!("#imsg: hmac_key:   {:?}", hmac_key);
@@ -3352,9 +3429,12 @@ impl<'a> HIPDaemon<'a> {
                                 .get_signature_2()?,
                         );
                         if !verified? {
-                            hip_trace!("#imsg: Invalid signature in [R2] packet, dropping the packet...");
+                            hip_trace!(
+                                "#imsg: invalid signature in [R2] packet, dropping the packet..."
+                            );
                             hip_debug!("#imsg: bytes_to_verify: {:?}", &bytes_to_verify[..]);
-                            hip_debug!("#imsg: signature:       {:?}",
+                            hip_debug!(
+                                "#imsg: signature:       {:?}",
                                 signature_param
                                     .ok_or_else(|| HIPError::SignatureError)?
                                     .get_signature_2()?
@@ -3376,7 +3456,9 @@ impl<'a> HIPDaemon<'a> {
                                 .get_signature_2()?,
                         );
                         if !verified? {
-                            hip_trace!("#imsg: invalid signature in [R2] packet, dropping the packet...");
+                            hip_trace!(
+                                "#imsg: invalid signature in [R2] packet, dropping the packet..."
+                            );
                             hip_debug!("#imsg: bytes_to_verify: {:?}", &bytes_to_verify[..]);
                             hip_debug!(
                                 "#imsg: signature:       {:?}",
@@ -3518,6 +3600,22 @@ impl<'a> HIPDaemon<'a> {
                 hip_state = hip_state.map(|state| state.established());
 
                 if is_hit_smaller {
+                    // Update HIP StateMachine
+                    let mut old_hip_state = self.hip_state_machine.get_mut(&ihit, &rhit)?;
+                    match (&mut old_hip_state, hip_state) {
+                        (Some(old_state), Some(new_state)) => {
+                            hip_debug!("#ista: hip_state::[{}]=>[{}]", old_state, new_state);
+                            **old_state = new_state;
+                        }
+                        (_, _) => {
+                            hip_debug!(
+                                "#ista: hip_state::[prev: {:?}]=>[current: {:?}], invalid state reached",
+                                old_hip_state,
+                                hip_state
+                            );
+                            return Err(HIPError::InvalidState);
+                        }
+                    }
                     let sv = self.state_vars_map.get_mut(&rhit, &ihit)?;
                     sv.map(|s| {
                         s.data_timeout = Instant::now()
@@ -3526,6 +3624,22 @@ impl<'a> HIPDaemon<'a> {
                             }
                     });
                 } else {
+                    // Update HIP StateMachine
+                    let mut old_hip_state = self.hip_state_machine.get_mut(&ihit, &rhit)?;
+                    match (&mut old_hip_state, hip_state) {
+                        (Some(old_state), Some(new_state)) => {
+                            hip_debug!("#ista: hip_state::[{}]=>[{}]", old_state, new_state);
+                            **old_state = new_state;
+                        }
+                        (_, _) => {
+                            hip_debug!(
+                                "#ista: hip_state::[prev: {:?}]=>[current: {:?}], invalid state reached",
+                                old_hip_state,
+                                hip_state
+                            );
+                            return Err(HIPError::InvalidState);
+                        }
+                    }
                     let sv = self.state_vars_map.get_mut(&ihit, &rhit)?;
                     sv.map(|s| {
                         s.data_timeout = Instant::now()
@@ -3577,7 +3691,7 @@ impl<'a> HIPDaemon<'a> {
             || hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_closing()
             || hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_closed()
         {
-            hip_debug!("#ista: hip_state::[None]=>[{:?}]", hip_state.unwrap());
+            hip_debug!("#ista: hip_state::[None]=>[{}]", hip_state.unwrap());
             hip_debug!("#imsg: initiate [HIP_BEX]...");
 
             // HIP DH Groups Parameter. An 11 packet with a 12-byte DH Groups parameter
@@ -3654,7 +3768,10 @@ impl<'a> HIPDaemon<'a> {
                 // Update HIP StateMachine
                 let mut old_hip_state = self.hip_state_machine.get_mut(&rhit, &ihit)?;
                 match (&mut old_hip_state, hip_state) {
-                    (Some(old_state), Some(new_state)) => **old_state = new_state,
+                    (Some(old_state), Some(new_state)) => {
+                        hip_debug!("#ista: hip_state::[{}]=>[{}]", old_state, new_state);
+                        **old_state = new_state;
+                    }
                     (_, _) => {
                         hip_debug!(
                             "#ista: hip_state::[prev: {:?}]=>[current: {:?}], invalid state reached",
@@ -3691,7 +3808,10 @@ impl<'a> HIPDaemon<'a> {
             } else {
                 let mut old_hip_state = self.hip_state_machine.get_mut(&ihit, &rhit)?;
                 match (&mut old_hip_state, hip_state) {
-                    (Some(old_state), Some(new_state)) => **old_state = new_state,
+                    (Some(old_state), Some(new_state)) => {
+                        hip_debug!("#ista: hip_state::[{}]=>[{}]", old_state, new_state);
+                        **old_state = new_state;
+                    }
                     (_, _) => {
                         hip_debug!(
                             "#ista: hip_state::[prev: {:?}]=>[current: {:?}], invalid state reached",

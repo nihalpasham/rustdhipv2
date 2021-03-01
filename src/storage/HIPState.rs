@@ -5,6 +5,7 @@ use hmac::crypto_mac::Key;
 use managed::ManagedMap;
 
 use core::fmt;
+use std::fmt::Display;
 
 use libc_print::libc_println;
 
@@ -71,7 +72,7 @@ impl State {
     pub fn i1_sent(mut self) -> Self {
         self = State::I1Sent;
         self
-    }   
+    }
 
     pub fn is_i2_sent(&self) -> bool {
         self == &State::I2Sent
@@ -95,7 +96,7 @@ impl State {
         self == &State::Established
     }
 
-    pub fn established(mut self) ->  Self {
+    pub fn established(mut self) -> Self {
         self = State::Established;
         self
     }
@@ -321,9 +322,15 @@ impl<'a> StateMachine<'a> {
             .is_none()
         {
             self.add_new_key(key.clone());
-            Ok(self.hip_states.map_store.get_mut(&HeaplessString { s: key }))
+            Ok(self
+                .hip_states
+                .map_store
+                .get_mut(&HeaplessString { s: key }))
         } else {
-            Ok(self.hip_states.map_store.get_mut(&HeaplessString { s: key }))
+            Ok(self
+                .hip_states
+                .map_store
+                .get_mut(&HeaplessString { s: key }))
         }
     }
 
@@ -388,7 +395,7 @@ pub struct Storage<'a, Q> {
     store: NoHeapMap<'a, Q>,
 }
 
-impl<'a, Q> Storage<'a, Q> {
+impl<'a, Q: MapDesc + Clone> Storage<'a, Q> {
     /// Create a new `Storage`, given a Generic DataStore (i.e. a stack
     /// allocated array of optional key, value pairs)
     ///
@@ -522,11 +529,15 @@ impl<'a, Q> Storage<'a, Q> {
     /// - `Ok(None):`   indicates the supplied key, value pair does not exist
     ///   and attempts to insert it into the store.
     /// - `Err(HIPError):` indicates insertion failed.
-    pub fn add_new_key(&mut self, key: String<U80>, val: Q) -> Result<Option<Q>> {
-        let status = match self.store.map_store.insert(HeaplessString { s: key }, val) {
+    pub fn add_new_key(&mut self, key: String<U80>, value: Q) -> Result<Option<Q>> {
+        let status = match self
+            .store
+            .map_store
+            .insert(HeaplessString { s: key }, value.clone())
+        {
             Ok(val) => match val {
                 None => {
-                    hip_debug!("(key, value) pair inserted");
+                    hip_debug!("{}", value.log());
                     val
                 }
                 _ => unreachable!(),
@@ -569,6 +580,22 @@ impl<'a, Q> Storage<'a, Q> {
     }
 }
 
+/// A trait to log the `map-type`, when adding a new entry (i.e. key, value pair).
+pub trait MapDesc {
+    fn log(&self) -> &str;
+}
+
+impl MapDesc for [u8; 800] {
+    fn log(&self) -> &str {
+        "#log: new entry added to keymat_map"
+    }
+}
+
+impl MapDesc for Option<u8> {
+    fn log(&self) -> &str {
+        "#log: new entry added to cipher_map"
+    }
+}
 // impl Deref for HeaplessString {
 //     type Target = String<U80>;
 
@@ -613,6 +640,12 @@ pub struct StateVariables {
 	closing_timeout: Instant,
 	closed_timeout:  Instant,
 	failed_timeout:  Instant,
+}
+
+impl MapDesc for StateVariables {
+    fn log(&self) -> &str {
+        "#log: new entry added to state_vars_map"
+    }
 }
 
 // #[rustfmt::skip]
@@ -686,6 +719,12 @@ pub struct KeyInfo {
     pub alg_id: u8,
 }
 
+impl MapDesc for KeyInfo {
+    fn log(&self) -> &str {
+        "#log: new entry added to key_info_map"
+    }
+}
+
 impl AsByteArray<97> for KeyInfo {
     fn as_bytearray(&self) -> [u8; 97] {
         let mut buf = [0; 97];
@@ -714,12 +753,24 @@ pub enum SharedDHPubKey {
     Pk384([u8; 96]),
 }
 
+impl MapDesc for SharedDHPubKey {
+    fn log(&self) -> &str {
+        "#log: new entry added to pubkey_map"
+    }
+}
+
 /// Enum to represent DH keys (i.e. public and private keys)
 #[derive(Clone)]
 pub enum DHKeys {
     EcdhP256(SkP256, PkP256),
     EcdhP384(SkP384, PkP384),
     Default,
+}
+
+impl MapDesc for DHKeys {
+    fn log(&self) -> &str {
+        "#log: new entry added to dh_map"
+    }
 }
 
 #[cfg(test)]

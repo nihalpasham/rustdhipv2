@@ -1,11 +1,14 @@
 use crate::crypto::{aes, factory::*};
 use crate::utils::misc::*;
-use core::cmp::Ordering;
 use core::convert::TryInto;
+use core::{cmp::Ordering, fmt};
 use heapless::{consts::*, String};
 use managed::ManagedMap;
+use std::fmt::Display;
 
 use crate::{HIPError, Result};
+
+use super::HIPState::MapDesc;
 
 /// Enum to represent AES keys (i.e. ESP keys)
 #[derive(Debug, Copy, Clone)]
@@ -22,7 +25,6 @@ pub enum SAData {
     Default,
 }
 
-
 #[derive(Debug, Copy, Clone)]
 pub struct SecurityAssociationRecord {
     seq: u32,
@@ -33,6 +35,12 @@ pub struct SecurityAssociationRecord {
     hmac_alg: HMACTypes,
     src: SAData,
     dst: SAData,
+}
+
+impl MapDesc for SecurityAssociationRecord {
+    fn log(&self) -> &str {
+        "#log: new entry added to sa_map"
+    }
 }
 
 impl SecurityAssociationRecord {
@@ -243,12 +251,16 @@ impl<'a> SecurityAssociationDatabase<'a> {
     pub fn add_record(
         &mut self,
         sa_key: String<U80>,
-        val: SecurityAssociationRecord,
+        value: SecurityAssociationRecord,
     ) -> Result<Option<SecurityAssociationRecord>> {
-        let status = match self.record.map_store.insert(SAKeyString { s: sa_key }, val) {
+        let status = match self
+            .record
+            .map_store
+            .insert(SAKeyString { s: sa_key }, value.clone())
+        {
             Ok(val) => match val {
                 None => {
-                    hip_debug!("(key, value) pair inserted");
+                    hip_debug!("{}", value.log());
                     val
                 }
                 _ => unreachable!(),
