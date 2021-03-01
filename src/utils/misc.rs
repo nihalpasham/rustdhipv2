@@ -23,14 +23,17 @@ pub enum HeaplessStringTypes {
     U64(String<U80>),
     U32(String<U40>),
     U16(String<U20>),
+    U8(String<U10>),
 }
 
 impl HeaplessStringTypes {
     pub fn as_str(&self) -> &str {
+        #[rustfmt::skip]
         match self {
             HeaplessStringTypes::U64(str) => str.as_str(),
             HeaplessStringTypes::U32(str) => str.as_str(),
             HeaplessStringTypes::U16(str) => str.as_str(),
+            HeaplessStringTypes::U8(str)  => str.as_str(),
         }
     }
 }
@@ -112,25 +115,47 @@ impl Utils {
                     (_, _) => Err(HIPError::IncorrectLength),
                 }
             }
-            (Some(ihit), None) => {
-                let mut key_string: String<U40> = String::new();
-                let _temp = ihit.iter().enumerate().for_each(|(i, byte)| {
-                    key_string
-                        .push(HEX_CHARS_LOWER[(byte >> 4) as usize] as char)
-                        .and_then(|_| {
-                            key_string.push(HEX_CHARS_LOWER[(byte & 0x0F) as usize] as char)
-                        });
-                    if i == 1 {
-                        key_string.push(':')
-                    } else if i > 1 && ((i - 1) % 2) == 0 {
-                        key_string.push(':')
-                    } else {
-                        Ok(())
-                    };
-                });
-                key_string.pop();
-                Ok(HeaplessStringTypes::U32(key_string))
-            }
+            (Some(ihit), None) => match ihit.len() {
+                0x10 => {
+                    let mut key_string: String<U40> = String::new();
+                    let _temp = ihit.iter().enumerate().for_each(|(i, byte)| {
+                        key_string
+                            .push(HEX_CHARS_LOWER[(byte >> 4) as usize] as char)
+                            .and_then(|_| {
+                                key_string.push(HEX_CHARS_LOWER[(byte & 0x0F) as usize] as char)
+                            });
+                        if i == 1 {
+                            key_string.push(':')
+                        } else if i > 1 && ((i - 1) % 2) == 0 {
+                            key_string.push(':')
+                        } else {
+                            Ok(())
+                        };
+                    });
+                    key_string.pop();
+                    Ok(HeaplessStringTypes::U32(key_string))
+                }
+                0x4 => {
+                    let mut key_string: String<U10> = String::new();
+                    let _temp = ihit.iter().enumerate().for_each(|(i, byte)| {
+                        key_string
+                            .push(HEX_CHARS_LOWER[(byte >> 4) as usize] as char)
+                            .and_then(|_| {
+                                key_string.push(HEX_CHARS_LOWER[(byte & 0x0F) as usize] as char)
+                            });
+                        if i == 1 {
+                            key_string.push(':')
+                        } else if i > 1 && ((i - 1) % 2) == 0 {
+                            key_string.push(':')
+                        } else {
+                            Ok(())
+                        };
+                    });
+                    key_string.pop();
+                    Ok(HeaplessStringTypes::U8(key_string))
+                }
+                _ => Err(HIPError::IncorrectLength),
+            },
             (None, Some(rhit)) => {
                 let mut key_string: String<U40> = String::new();
                 let _temp = rhit.iter().enumerate().for_each(|(i, byte)| {
@@ -298,8 +323,8 @@ impl Utils {
         }
 
         let aes_key = &keymat[offset as usize..(offset + cipher_key_len) as usize];
-        let hmac_key = &keymat
-            [(offset + cipher_key_len) as usize..offset as usize + cipher_key_len as usize + hmac_len as usize];
+        let hmac_key = &keymat[(offset + cipher_key_len) as usize
+            ..offset as usize + cipher_key_len as usize + hmac_len as usize];
 
         Ok((aes_key, hmac_key))
     }
@@ -448,22 +473,30 @@ mod test {
             ),
             result.clone().unwrap()
         );
-        println!("{:?}", if let Ok(HeaplessStringTypes::U64(val)) = result {
-            val.as_str().len()
-        } else { unimplemented!()});
+        println!(
+            "{:?}",
+            if let Ok(HeaplessStringTypes::U64(val)) = result {
+                val.as_str().len()
+            } else {
+                unimplemented!()
+            }
+        );
 
         let ipv4_src = [1, 2, 3, 4];
         let ipv4_dst = [5, 6, 7, 8];
 
-        let res =  Utils::hex_formatted_hit_bytes(Some(&ipv4_src), Some(&ipv4_dst));
+        let res = Utils::hex_formatted_hit_bytes(Some(&ipv4_src), Some(&ipv4_dst));
         assert_eq!(
-            HeaplessStringTypes::U16(
-                String::from_str("0102:0304:0506:0708").unwrap()
-            ),
+            HeaplessStringTypes::U16(String::from_str("0102:0304:0506:0708").unwrap()),
             res.clone().unwrap()
         );
-        println!("{:?}", if let Ok(HeaplessStringTypes::U16(val)) = res {
-            val.as_str().len()
-        } else { unimplemented!()});
+        println!(
+            "{:?}",
+            if let Ok(HeaplessStringTypes::U16(val)) = res {
+                val.as_str().len()
+            } else {
+                unimplemented!()
+            }
+        );
     }
 }

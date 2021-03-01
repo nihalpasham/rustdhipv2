@@ -18,7 +18,6 @@ const HEX_CHARS_LOWER: &[u8; 16] = b"0123456789abcdef";
 pub enum State {
     Unassociated,
     I1Sent,
-    R1Sent,
     I2Sent,
     R2Sent,
     Established,
@@ -33,7 +32,6 @@ impl fmt::Display for State {
         match self {
             &State::Unassociated => write!(f, "UNASSOCIATED"),
             &State::I1Sent       => write!(f, "I1-SENT"),
-            &State::R1Sent       => write!(f, "R1-SENT"),
             &State::I2Sent       => write!(f, "I2-SENT"),
             &State::R2Sent       => write!(f, "R2-SENT"),
             &State::Established  => write!(f, "ESTABLISHED"),
@@ -327,6 +325,23 @@ impl<'a> StateMachine<'a> {
         } else {
             Ok(self.hip_states.map_store.get_mut(&HeaplessString { s: key }))
         }
+    }
+
+    /// Returns a list  of optional keys. A key is a `optional heapless
+    /// String<U80>` (i.e. an 80 byte array represented by a `GenericArray<u8;
+    /// U80>`).
+    ///
+    /// - For now - its limited to 5 keys as `Copy` isnt implemented for
+    ///   String<U80>
+    pub fn keys(&self) -> [Option<String<U80>>; 5] {
+        let mut keys = [None, None, None, None, None];
+        let _temp = self
+            .hip_states
+            .map_store
+            .iter()
+            .enumerate()
+            .for_each(|(i, (k, v))| keys[i] = Some(k.s.clone()));
+        keys
     }
 }
 

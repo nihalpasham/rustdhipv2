@@ -119,12 +119,15 @@ impl<'a> HIPDaemon<'a> {
         let rhit = hip_packet.get_receivers_hit();
         let mut hip_state = None;
 
+        let is_hit_smaller = Utils::is_hit_smaller(&ihit, &rhit);
         // Get the key from the `hip_state_machine` and if it doesn't exist, add one.
-        if Utils::is_hit_smaller(&ihit, &rhit) {
+        if is_hit_smaller {
+            hip_debug!("ihit < rhit {}", is_hit_smaller);
             self.hip_state_machine
                 .get(&rhit, &ihit)?
                 .and_then(|state| Some(hip_state = Some(*state)));
         } else {
+            hip_debug!("ihit < rhit {}", is_hit_smaller);
             self.hip_state_machine
                 .get(&ihit, &rhit)?
                 .and_then(|state| Some(hip_state = Some(*state)));
@@ -652,7 +655,7 @@ impl<'a> HIPDaemon<'a> {
             }
 
             HIP_R1_PACKET => {
-                hip_debug!("Received R1 packet");
+                hip_debug!("#imsg: received [R1] packet");
 
                 if hip_state
                     .ok_or_else(|| HIPError::InvalidState)?
@@ -665,19 +668,22 @@ impl<'a> HIPDaemon<'a> {
                         .is_established()
                 {
                     hip_debug!(
-                        "Not expecting an R1 packet. Dropping packet... {:?}",
-                        hip_state
+                        "#imsg: not expecting an [R1] packet, dropping packet... [{:?}]",
+                        hip_state.unwrap()
                     );
+                    hip_debug!("#imsg: state_machine: {:?}", self.hip_state_machine.keys());
                 }
+
+                hip_debug!("#ista: hip_state::[current state: {:?}]", hip_state.unwrap());
 
                 let oga_id = HIT::get_responders_oga_id(&rhit);
                 let oga = oga_id << 4;
                 match oga {
                     0x10 | 0x20 | 0x30 => {}
                     _ => {
-                        hip_debug!("Unsupported HIT suit");
-                        hip_debug!("OGA {:?}", oga_id);
-                        hip_debug!("supported_hit_suits: {:?}", [0x10, 0x20, 0x30]);
+                        hip_debug!("#imsg: Unsupported HIT suit");
+                        hip_debug!("#imsg: OGA {:?}", oga_id);
+                        hip_debug!("#imsg: supported_hit_suits: {:?}", [0x10, 0x20, 0x30]);
                     }
                 }
 
@@ -753,21 +759,21 @@ impl<'a> HIPDaemon<'a> {
                         {
                             let responder_hi = hi_param.map(|param| param.get_host_id());
                             let oga = HIT::get_responders_oga_id(&ihit);
-                            hip_debug!("Responder's OGA ID {:?}", oga);
-                            hip_debug!("Responder HI: {:?}", responder_hi);
+                            hip_debug!("#imsg: responder's OGA id 0x{}", oga);
+                            // hip_debug!("Responder HI: {:?}", responder_hi);
                             let hi = match responder_hi {
                                 Some(Ok(val)) => val,
                                 _ => {
-                                    hip_debug!("HostID missing");
+                                    hip_debug!("#imsg: hostid missing");
                                     &[]
                                 }
                             };
                             match hi[0..2] {
                                 [0, 1] => {
                                     let responders_hit = HIT::compute_hit::<82>(hi, oga);
-                                    hip_debug!("Responder's computed HIT: {:?}", responders_hit);
-                                    hip_debug!("Responder's actual HIT: {:?}", &ihit);
-                                    hip_debug!("own HIT: {:?}", self.hit_as_bytes);
+                                    hip_debug!("#imsg: responder's computed HIT: {:?}", responders_hit);
+                                    hip_debug!("#imsg: responder's actual HIT:   {:?}", &ihit);
+                                    hip_debug!("#imsg: self HIT:                 {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &responders_hit) {
                                         hip_trace!("Invalid HIT");
                                         panic!(
@@ -778,13 +784,13 @@ impl<'a> HIPDaemon<'a> {
                                 }
                                 [0, 2] => {
                                     let responders_hit = HIT::compute_hit::<114>(hi, oga);
-                                    hip_debug!("Responder's computed HIT: {:?}", responders_hit);
-                                    hip_debug!("Responder's actual HIT: {:?}", &ihit);
-                                    hip_debug!("own HIT: {:?}", self.hit_as_bytes);
+                                    hip_debug!("#imsg: responder's computed HIT: {:?}", responders_hit);
+                                    hip_debug!("#imsg: responder's actual HIT:   {:?}", &ihit);
+                                    hip_debug!("#imsg: self HIT:                 {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &responders_hit) {
-                                        hip_trace!("Invalid HIT");
+                                        hip_trace!("#imsg: invalid HIT");
                                         panic!(
-                                            "Invalid HIT {:?}, responder_hit: {:?}",
+                                            "#imsg: invalid HIT {:?}, responder_hit: {:?}",
                                             &ihit, &responders_hit
                                         );
                                     }
@@ -924,9 +930,10 @@ impl<'a> HIPDaemon<'a> {
                 // If yes, drop the packet and set state to unassociated.
                 let elapsed_time = timer.get_elapsed_time().ok_or_else(|| HIPError::TimeOut)?;
                 if elapsed_time > timer.duration {
-                    hip_debug!("Maximum time to solve the puzzle exceeded. Dropping the packet...");
+                    hip_debug!("imsg: maximum time to solve the puzzle exceeded. Dropping the packet...");
                     hip_state = hip_state.map(|state| state.unassociated());
                 }
+                hip_debug!("#imsg: time_taken: {} < timer_duration: {}", elapsed_time, timer.duration);
 
                 // Echo Response Signed Paraemeter - just echo back what the sender sent, unmodified. Assuming a 36 byte opaque payload.
                 let mut echo_signed = EchoResponseSignedParameter::new_checked_mut([0; 36])?;
@@ -1058,7 +1065,7 @@ impl<'a> HIPDaemon<'a> {
                                 );
                                 if !verified? {
                                     hip_trace!(
-                                        "Invalid signature in R1 packet. Dropping the packet"
+                                        "#imsg: invalid signature in [R1] packet. Dropping the packet..."
                                     );
                                 }
                             }
@@ -1078,7 +1085,7 @@ impl<'a> HIPDaemon<'a> {
                                 );
                                 if !verified? {
                                     hip_trace!(
-                                        "Invalid signature in R1 packet. Dropping the packet"
+                                        "#imsg: invalid signature in [R1] packet. Dropping the packet..."
                                     );
                                 }
                             }
@@ -1102,7 +1109,7 @@ impl<'a> HIPDaemon<'a> {
                     }
                 }
                 if selected_dh_group == None {
-                    hip_debug!("Unsupported DH groups");
+                    hip_debug!("#imsg: unsupported DH groups");
                 }
 
                 // Generate DH private and public keys for the selected DH group.
@@ -1141,7 +1148,7 @@ impl<'a> HIPDaemon<'a> {
                     Ok(pk) if pk.len() == 65 => (Some(pk), None),
                     Ok(pk) if pk.len() == 97 => (None, Some(pk)),
                     Ok(_) => {
-                        hip_debug!("Invalid Public Key value");
+                        hip_debug!("#imsg: invalid public key value");
                         (None, None)
                     }
                     Err(_) => unimplemented!(),
@@ -1246,7 +1253,7 @@ impl<'a> HIPDaemon<'a> {
                     }
                 }
                 if selected_cipher.is_none() {
-                    hip_trace!("Unsupported cipher");
+                    hip_trace!("#imsg: unsupported cipher");
                     return Err(HIPError::Unrecognized);
                 }
 
@@ -1273,7 +1280,7 @@ impl<'a> HIPDaemon<'a> {
                     }
                 }
                 if selected_esp_transform.is_none() {
-                    hip_trace!("Unsupported ESP transform suit");
+                    hip_trace!("#imsg: unsupported ESP transform suit");
                     return Err(HIPError::Unrecognized);
                 }
 
@@ -1312,7 +1319,7 @@ impl<'a> HIPDaemon<'a> {
                     self.keymat_map.save(&ihit, &rhit, keymat);
                 }
 
-                hip_debug!("Processing R1 packet");
+                hip_debug!("#imsg: validated [R1] packet");
 
                 // Construct I2 packet
                 let mut hip_i2_packet = I2Packet::<[u8; 1024]>::new_i2packet().unwrap();
@@ -1968,19 +1975,19 @@ impl<'a> HIPDaemon<'a> {
                 );
 
                 // hex formatted string of dst IPv6 address
-                let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
-                if let HeaplessStringTypes::U32(val) = dst_str {
+                // let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
+                // if let HeaplessStringTypes::U32(val) = dst_str {
                     hip_debug!(
-                        "Sending I2 packet to {:?}, bytes sent {:?}",
-                        val,
+                        "#imsg: sending [I2] packet to {}, bytes sent {:?}",
+                        &dst,
                         &ipv4_packet.total_len()
                     );
-                }
+                // }
 
                 if hip_socket.can_send() {
                     hip_socket.send_slice(ipv4_packet.as_ref());
                 } else {
-                    hip_trace!("failed to send I2 packet");
+                    hip_trace!("#imsg: failed to send [I2] packet");
                 }
 
                 if is_hit_smaller {
@@ -2013,14 +2020,14 @@ impl<'a> HIPDaemon<'a> {
                 {
                     hip_state = hip_state.map(|s| s.i2_sent());
                     // Update HIP StateMachine
-                    let mut old_hip_state = self.hip_state_machine.get_mut(&rhit, &ihit)?;
+                    let mut old_hip_state = self.hip_state_machine.get_mut(&ihit, &rhit)?;
                     match (&mut old_hip_state, hip_state) {
                         (Some(old_state), Some(new_state)) => **old_state = new_state,
                         (_, _) => {
                             hip_debug!(
-                                "Invalid states reached, prev: {:?}, current: {:?}",
-                                old_hip_state,
-                                hip_state
+                                "#ista: hip_state::[prev: {:?}]=>[current: {:?}], invalid state reached",
+                                old_hip_state.unwrap(),
+                                hip_state.unwrap()
                             );
                             return Err(HIPError::InvalidState);
                         }
@@ -2029,7 +2036,7 @@ impl<'a> HIPDaemon<'a> {
             }
 
             HIP_I2_PACKET => {
-                hip_debug!("Received I2 packet");
+                hip_debug!("#rmsg: received I2 packet");
 
                 let mut solution_param = None;
                 let mut r1_counter_param = None;
@@ -2100,38 +2107,38 @@ impl<'a> HIPDaemon<'a> {
                         {
                             let initiator_hi = hi_param.map(|param| param.get_host_id());
                             let oga = HIT::get_responders_oga_id(&ihit);
-                            hip_debug!("Initiator's OGA ID {:?}", oga);
-                            hip_debug!("Initiator's HI: {:?}", initiator_hi);
+                            hip_debug!("#rmsg: initiator's OGA id 0x{:?}", oga);
+                            // hip_debug!("Initiator's HI: {:?}", initiator_hi);
                             let hi = match initiator_hi {
                                 Some(Ok(val)) => val,
                                 _ => {
-                                    hip_debug!("HostID missing");
+                                    hip_debug!("Hostid missing");
                                     &[]
                                 }
                             };
                             match hi[0..2] {
                                 [0, 1] => {
                                     let initiators_hit = HIT::compute_hit::<82>(hi, oga);
-                                    hip_debug!("Initiator's computed HIT: {:?}", initiators_hit);
-                                    hip_debug!("Initiator's actual HIT: {:?}", &ihit);
-                                    hip_debug!("own HIT: {:?}", self.hit_as_bytes);
+                                    hip_debug!("#rmsg: initiator's computed HIT: {:?}", initiators_hit);
+                                    hip_debug!("#rmsg: initiator's actual HIT:   {:?}", &ihit);
+                                    hip_debug!("#rmsg: self HIT:                 {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &initiators_hit) {
-                                        hip_trace!("Invalid HIT");
+                                        hip_trace!("#rmsg: invalid HIT");
                                         panic!(
-                                            "Invalid HIT {:?}, initiator_hit: {:?}",
+                                            "#rmsg: invalid HIT {:?}, initiator_hit: {:?}",
                                             &ihit, &initiators_hit
                                         );
                                     }
                                 }
                                 [0, 2] => {
                                     let initiators_hit = HIT::compute_hit::<114>(hi, oga);
-                                    hip_debug!("Initiator's computed HIT: {:?}", initiators_hit);
-                                    hip_debug!("Initiator's actual HIT: {:?}", &ihit);
-                                    hip_debug!("own HIT: {:?}", self.hit_as_bytes);
+                                    hip_debug!("#rmsg: initiator's computed HIT: {:?}", initiators_hit);
+                                    hip_debug!("#rmsg: initiator's actual HIT:   {:?}", &ihit);
+                                    hip_debug!("#rmsg: self HIT:                 {:?}", self.hit_as_bytes);
                                     if !Utils::hits_equal(&ihit, &initiators_hit) {
-                                        hip_trace!("Invalid HIT");
+                                        hip_trace!("#rmsg: invalid HIT");
                                         panic!(
-                                            "Invalid HIT {:?}, initiator_hit: {:?}",
+                                            "#rmsg: invalid HIT {:?}, initiator_hit: {:?}",
                                             &ihit, &initiators_hit
                                         );
                                     }
@@ -2230,16 +2237,16 @@ impl<'a> HIPDaemon<'a> {
                 match oga {
                     0x10 | 0x20 | 0x30 => {}
                     _ => {
-                        hip_debug!("Unsupported HIT suit");
-                        hip_debug!("OGA {:?}", oga_id);
-                        hip_debug!("supported_hit_suits: {:?}", [0x10, 0x20, 0x30]);
+                        hip_debug!("#rmsg: unsupported HIT suit");
+                        hip_debug!("#rmsg: OGA {:?}", oga_id);
+                        hip_debug!("#rmsg: supported_hit_suits: {:?}", [0x10, 0x20, 0x30]);
                     }
                 }
 
                 let is_hit_smaller = Utils::is_hit_smaller(&rhit, &ihit);
                 if hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_i2_sent() {
                     if is_hit_smaller {
-                        hip_debug!("Dropping I2 packet");
+                        hip_debug!("#rmsg: dropping [I2] packet...");
                     }
                 }
 
@@ -2261,10 +2268,10 @@ impl<'a> HIPDaemon<'a> {
                     solution_param.unwrap().get_k_value()? as usize,
                     &rhash,
                 ) {
-                    hip_debug!("Puzzle was not verified");
+                    hip_debug!("#rmsg: puzzle was not verified");
                 }
 
-                hip_debug!("Puzzle was verified");
+                hip_debug!("#rmsg: puzzle was verified");
 
                 // Get DH secret keys from dh_map
                 let mut dh_alg_id = 0;
@@ -2327,9 +2334,9 @@ impl<'a> HIPDaemon<'a> {
                     _ => unimplemented!(),
                 };
                 if ss256.is_some() {
-                    hip_debug!("#debug::secret_key {:?}", ss256.clone().unwrap().to_bytes());
+                    hip_debug!("#rdbg: shared secret_key, {} bytes", ss256.clone().unwrap().to_bytes().len());
                 } else if ss384.is_some() {
-                    hip_debug!("#debug::secret_key {:?}", ss384.clone().unwrap().to_bytes());
+                    hip_debug!("#rdbg: shared secret_key, {} bytes", ss384.clone().unwrap().to_bytes().len());
                 }
 
                 // A 64 byte salt for the HBKDF from the concatenated irandom + jrandom values
@@ -2371,7 +2378,7 @@ impl<'a> HIPDaemon<'a> {
                     }
                 }
                 if selected_cipher.is_none() {
-                    hip_trace!("Unsupported cipher");
+                    hip_trace!("#rmsg: unsupported cipher");
                     return Err(HIPError::Unrecognized);
                 }
 
@@ -2388,7 +2395,7 @@ impl<'a> HIPDaemon<'a> {
                     .get_esp_suits()?
                     .is_empty()
                 {
-                    hip_debug!("ESP transform suit was not negotiated.");
+                    hip_debug!("#rmsg: ESP transform suit was not negotiated.");
                     return Err(HIPError::FieldNotSet);
                 }
 
@@ -2477,8 +2484,8 @@ impl<'a> HIPDaemon<'a> {
                     if hi_param.get_algorithm()? == 0x7 {
                         let initiator_hi = hi_param.get_host_id();
                         let oga = HIT::get_responders_oga_id(&ihit);
-                        hip_debug!("Initiator's OGA ID {:?}", oga);
-                        hip_debug!("Initiator HI: {:?}", initiator_hi);
+                        hip_debug!("#rmsg: initiator's OGA id {:?}", oga);
+                        // hip_debug!("#rmsg: initiator HI: {:?}", initiator_hi);
                         let hi = match initiator_hi {
                             Ok(val) => val,
                             _ => {
@@ -2489,9 +2496,9 @@ impl<'a> HIPDaemon<'a> {
                         match hi[0..2] {
                             [0, 1] => {
                                 let initiators_hit = HIT::compute_hit::<82>(hi, oga);
-                                hip_debug!("Initiator's computed HIT: {:?}", initiators_hit);
-                                hip_debug!("Initiator's actual HIT: {:?}", &ihit);
-                                hip_debug!("own HIT: {:?}", self.hit_as_bytes);
+                                hip_debug!("#rmsg: initiator's computed HIT: {:?}", initiators_hit);
+                                hip_debug!("#rmsg: initiator's actual HIT:   {:?}", &ihit);
+                                hip_debug!("#rmsg: self HIT:                 {:?}", self.hit_as_bytes);
                                 if !Utils::hits_equal(&ihit, &initiators_hit) {
                                     hip_trace!("Invalid HIT");
                                     panic!(
@@ -2502,19 +2509,19 @@ impl<'a> HIPDaemon<'a> {
                             }
                             [0, 2] => {
                                 let initiators_hit = HIT::compute_hit::<114>(hi, oga);
-                                hip_debug!("Initiator's computed HIT: {:?}", initiators_hit);
-                                hip_debug!("Initiator's actual HIT: {:?}", &ihit);
-                                hip_debug!("own HIT: {:?}", self.hit_as_bytes);
+                                hip_debug!("#rmsg: initiator's computed HIT: {:?}", initiators_hit);
+                                hip_debug!("#rmsg: initiator's actual HIT:   {:?}", &ihit);
+                                hip_debug!("#rmsg: self HIT:                 {:?}", self.hit_as_bytes);
                                 if !Utils::hits_equal(&ihit, &initiators_hit) {
-                                    hip_trace!("Invalid HIT");
+                                    hip_trace!("#rmsg: invalid HIT");
                                     panic!(
-                                        "Invalid HIT {:?}, initiator_hit: {:?}",
+                                        "#rmsg: invalid HIT {:?}, initiator_hit: {:?}",
                                         &ihit, &initiators_hit
                                     );
                                 }
                             }
                             _ => {
-                                hip_debug!("Invalid remote Host Identity");
+                                hip_debug!("#rmsg: invalid remote host identity");
                                 unimplemented!()
                             }
                         }
@@ -2532,7 +2539,7 @@ impl<'a> HIPDaemon<'a> {
                                 initiator_pubkey256 = None;
                             }
                             _ => {
-                                hip_debug!("Invalid remote Host Identity");
+                                hip_debug!("#rmg: invalid remote host identity");
                                 unimplemented!()
                             }
                         }
@@ -2646,16 +2653,16 @@ impl<'a> HIPDaemon<'a> {
                         if SHA256HMAC::hmac_256(&hmac_bytes[..], hmac_key)
                             != mac_param.ok_or_else(|| HIPError::FieldNotSet)?.get_hmac()?
                         {
-                            hip_debug!("Invalid HMAC. Dropping the packet");
-                            hip_debug!("hmac_bytes: {:?}", &hmac_bytes[..]);
-                            hip_debug!("hmac_bytes: {:?}", hmac_key);
+                            hip_debug!("#rmsg: invalid HMAC, dropping the packet...");
+                            hip_debug!("#rmsg: hmac_bytes: {:?}", &hmac_bytes[..]);
+                            hip_debug!("#rmsg: hmac_key:   {:?}", hmac_key);
                         }
                     }
                     HMACTypes::HMAC384(mac) => {
                         if SHA384HMAC::hmac_384(&hmac_bytes[..], hmac_key)
                             != mac_param.ok_or_else(|| HIPError::FieldNotSet)?.get_hmac()?
                         {
-                            hip_debug!("Invalid HMAC. Dropping the packet");
+                            hip_debug!("#rmsg: invalid HMAC, dropping the packet...");
                         }
                     }
                     _ => unimplemented!(),
@@ -2691,14 +2698,13 @@ impl<'a> HIPDaemon<'a> {
                                     .get_signature()?,
                             );
                             if !verified? {
-                                hip_trace!("Invalid signature in I2 packet. Dropping the packet");
-                                hip_debug!("bytes_to_verify: {:?}", &bytes_to_verify[..]);
-                                hip_debug!(
-                                    "signature: {:?}",
+                                hip_trace!("#rmsg: invalid signature in [I2] packet, dropping the packet...");
+                                hip_debug!("#rmsg: bytes_to_verify: {:?}", &bytes_to_verify[..]);
+                                hip_debug!("#rmsg: signature:       {:?}",
                                     signature_param.unwrap().get_signature()?
                                 );
                             } else {
-                                hip_debug!("Signature verified!");
+                                hip_debug!("#rmsg: signature verified!");
                             }
                         }
                     }
@@ -2716,21 +2722,20 @@ impl<'a> HIPDaemon<'a> {
                                     .get_signature()?,
                             );
                             if !verified? {
-                                hip_debug!("Invalid signature in I2 packet. Dropping the packet");
-                                hip_debug!("bytes_to_verify: {:?}", &bytes_to_verify[..]);
-                                hip_debug!(
-                                    "signature: {:?}",
+                                hip_debug!("#rmsg: invalid signature in [I2] packet, dropping the packet...");
+                                hip_debug!("#rmsg: bytes_to_verify: {:?}", &bytes_to_verify[..]);
+                                hip_debug!("#rmsg: signature:       {:?}",
                                     signature_param.unwrap().get_signature()?
                                 );
                             } else {
-                                hip_debug!("Signature verified!");
+                                hip_debug!("#rmsg: signature verified!");
                             }
                         }
                     }
                     (_, _) => unimplemented!(),
                 }
 
-                hip_debug!("Processing I2 packet");
+                hip_debug!("#rmsg: validated [I2] packet");
 
                 // Construct a new R2 Packet
                 let mut hip_r2_packet = R2Packet::<[u8; 512]>::new_r2packet()?;
@@ -2746,7 +2751,7 @@ impl<'a> HIPDaemon<'a> {
                 let responder_spi = getrandom::<4>([12; 32]);
 
                 if initiators_keymat_index != Some(keymat_index as u16) {
-                    hip_trace!("Keymat index should match....");
+                    hip_trace!("#rmsg: keymat index should match....");
                     return Err(HIPError::IncorrectLength);
                 }
 
@@ -2952,10 +2957,10 @@ impl<'a> HIPDaemon<'a> {
                 );
 
                 // hex formatted string of dst IPv6 address
-                let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
-                let src_str = Utils::hex_formatted_hit_bytes(Some(&src.0), None)?;
+                // let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
+                // let src_str = Utils::hex_formatted_hit_bytes(Some(&src.0), None)?;
 
-                hip_debug!("Current System state is {:?}", hip_state);
+                hip_debug!("#ista: hip_state::[current state: {:?}]", hip_state.unwrap());
                 if hip_state
                     .ok_or_else(|| HIPError::__Nonexhaustive)?
                     .is_established()
@@ -2985,7 +2990,7 @@ impl<'a> HIPDaemon<'a> {
                         (Some(old_state), Some(new_state)) => **old_state = new_state,
                         (_, _) => {
                             hip_debug!(
-                                "Invalid states reached, prev: {:?}, current: {:?}",
+                                "#ista: hip_state::[prev: {:?}]=>[current: {:?}], invalid state reached",
                                 old_hip_state,
                                 hip_state
                             );
@@ -2993,22 +2998,22 @@ impl<'a> HIPDaemon<'a> {
                         }
                     }
 
-                    if let HeaplessStringTypes::U32(val) = dst_str {
+                    // if let HeaplessStringTypes::U32(val) = dst_str {
                         hip_debug!(
-                            "Sending R2 packet to {:?}, bytes sent {:?}",
-                            val,
+                            "#rmsg: sending [R2] packet to {}, bytes sent {:?}",
+                            &dst,
                             &ipv4_packet.total_len()
                         );
-                    }
+                    // }
 
                     if hip_socket.can_send() {
                         hip_socket.send_slice(ipv4_packet.as_ref());
                     } else {
-                        hip_trace!("failed to send R2 packet");
+                        hip_trace!("#rmsg: failed to send [R2] packet");
                     }
                 }
 
-                hip_debug!("Setting SA records...");
+                hip_debug!("#rmsg: setting SA records...");
 
                 let (cipher, hmac) = ESPTransformFactory::get(selected_esp_transform);
 
@@ -3153,10 +3158,10 @@ impl<'a> HIPDaemon<'a> {
                         .ok_or_else(|| HIPError::__Nonexhaustive)?
                         .is_closed()
                 {
-                    hip_debug!("Dropping the packet {:?}", hip_state);
+                    hip_debug!("#imsg: dropping the packet {:?}", hip_state.unwrap());
                 }
 
-                hip_debug!("Got R2 Packet");
+                hip_debug!("#imsg: got [R2] Packet");
 
                 let mut cipher_alg = 0;
                 let mut keymat = [0u8; 800];
@@ -3269,13 +3274,12 @@ impl<'a> HIPDaemon<'a> {
                             .ok_or_else(|| HIPError::FieldNotSet)?
                             .get_hmac2()?
                         {
-                            hip_debug!("Invalid HMAC256. Dropping the packet");
-                            hip_debug!(
-                                "hmac_bytes: {:?}",
+                            hip_debug!("#imsg: invalid HMAC256, dropping the packet...");
+                            hip_debug!("#imsg: hmac_bytes: {:?}",
                                 &hip_r2_packet.inner_ref().as_ref()[..byte_len as usize]
                             );
-                            hip_debug!("hmac_key: {:?}", hmac_key);
-                            hip_debug!("hmac: {:?}", option_as_ref(hmac_param)?);
+                            hip_debug!("#imsg: hmac_key:   {:?}", hmac_key);
+                            hip_debug!("#imsg: hmac:       {:?}", option_as_ref(hmac_param)?);
                         }
                     }
                     0x2 => {
@@ -3286,13 +3290,13 @@ impl<'a> HIPDaemon<'a> {
                             .ok_or_else(|| HIPError::FieldNotSet)?
                             .get_hmac2()?
                         {
-                            hip_debug!("Invalid HMAC384. Dropping the packet");
+                            hip_debug!("#imsg: invalid HMAC384, dropping the packet...");
                         }
                     }
                     _ => unimplemented!(),
                 }
 
-                hip_debug!("HMAC is ok. Compute signature");
+                hip_debug!("#imsg: HMAC is Ok, proceed to compute signature...");
 
                 let esp_info_param_len = esp_info_param
                     .ok_or_else(|| HIPError::FieldNotSet)?
@@ -3344,16 +3348,15 @@ impl<'a> HIPDaemon<'a> {
                                 .get_signature_2()?,
                         );
                         if !verified? {
-                            hip_trace!("Invalid signature in R2 packet. Dropping the packet");
-                            hip_debug!("bytes_to_verify: {:?}", &bytes_to_verify[..]);
-                            hip_debug!(
-                                "signature: {:?}",
+                            hip_trace!("#imsg: Invalid signature in [R2] packet, dropping the packet...");
+                            hip_debug!("#imsg: bytes_to_verify: {:?}", &bytes_to_verify[..]);
+                            hip_debug!("#imsg: signature:       {:?}",
                                 signature_param
                                     .ok_or_else(|| HIPError::SignatureError)?
                                     .get_signature_2()?
                             );
                         } else {
-                            hip_debug!("Signature is correct");
+                            hip_debug!("#imsg: signature is Ok");
                         }
                     }
                     0x30 => {
@@ -3369,16 +3372,16 @@ impl<'a> HIPDaemon<'a> {
                                 .get_signature_2()?,
                         );
                         if !verified? {
-                            hip_trace!("Invalid signature in R2 packet. Dropping the packet");
-                            hip_debug!("bytes_to_verify: {:?}", &bytes_to_verify[..]);
+                            hip_trace!("#imsg: invalid signature in [R2] packet, dropping the packet...");
+                            hip_debug!("#imsg: bytes_to_verify: {:?}", &bytes_to_verify[..]);
                             hip_debug!(
-                                "signature: {:?}",
+                                "#imsg: signature:       {:?}",
                                 signature_param
                                     .ok_or_else(|| HIPError::SignatureError)?
                                     .get_signature_2()?
                             );
                         } else {
-                            hip_debug!("Signature is correct");
+                            hip_debug!("#imsg: signature is Ok");
                         }
                     }
                     _ => unimplemented!(),
@@ -3387,14 +3390,14 @@ impl<'a> HIPDaemon<'a> {
                 responders_spi = esp_info_param.map(|esp_info| esp_info.get_new_spi());
                 keymat_index = esp_info_param.map(|esp_info| esp_info.get_keymat_index());
 
-                hip_debug!("Processing R2 packet");
-                hip_debug!("Ending HIP BEX...");
+                hip_debug!("#imsg: validated [R2] packet");
+                hip_debug!("#imsg: ending HIP BEX...");
 
                 // hex formatted string of dst IPv6 address
-                let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
-                let src_str = Utils::hex_formatted_hit_bytes(Some(&src.0), None)?;
+                // let dst_str = Utils::hex_formatted_hit_bytes(Some(&dst.0), None)?;
+                // let src_str = Utils::hex_formatted_hit_bytes(Some(&src.0), None)?;
 
-                hip_debug!("Setting SA records...{:?} - {:?}", src_str, dst_str);
+                hip_debug!("#imsg: setting SA records for...  {} <-> {}", &dst, &src);
 
                 let (cipher, hmac) = ESPTransformFactory::get(
                     self.selected_esp_transform
@@ -3549,13 +3552,15 @@ impl<'a> HIPDaemon<'a> {
         let mut hip_state = None;
         let is_hit_smaller = Utils::is_hit_smaller(&ihit, &rhit);
 
-        // Get the key from the `hip_state_machine` and if it doesn't exist, add one.
+        // Get the key from the `hip_state_machine`. If it doesn't exist, add one.
         if is_hit_smaller {
+            hip_debug!("ihit < rhit {}", is_hit_smaller);
             self.hip_state_machine.get(&rhit, &ihit)?.and_then(|state| {
                 hip_state = Some(*state);
                 hip_state
             });
         } else {
+            hip_debug!("ihit < rhit {}", is_hit_smaller);
             self.hip_state_machine.get(&ihit, &rhit)?.and_then(|state| {
                 hip_state = Some(*state);
                 hip_state
@@ -3568,9 +3573,8 @@ impl<'a> HIPDaemon<'a> {
             || hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_closing()
             || hip_state.ok_or_else(|| HIPError::FieldNotSet)?.is_closed()
         {
-            hip_debug!("HIP_STATE: {:?}", hip_state);
-            hip_debug!("Starting HIP BEX");
-            // hip_debug!("");
+            hip_debug!("#ista: hip_state::[None]=>[{:?}]", hip_state.unwrap());
+            hip_debug!("#imsg: initiate [HIP_BEX]...");
 
             // HIP DH Groups Parameter. An 11 packet with a 12-byte DH Groups parameter
             // i.e. we're only interested in 3 groups ECDHNIST384 (0x8), ECDHNIST256 (0x7), ECDHSECP160R1 (0xa)
@@ -3633,11 +3637,11 @@ impl<'a> HIPDaemon<'a> {
             //     .payload_mut()
             //     .copy_from_slice(&hip_i1_packet.inner_ref().as_ref()[..hip_pkt_size as usize]);
 
-            hip_debug!("Sending I1 packet");
+            hip_debug!("#imsg: sending [I1] packet: {:?} bytes", hip_pkt_size);
             if hip_socket.can_send() {
                 hip_socket.send_slice(ipv4_packet.as_ref());
             } else {
-                hip_trace!("failed to send I1 packet");
+                hip_trace!("#imsg: failed to send [I1] packet");
             }
 
             // Transition to an I1-Sent state
@@ -3645,18 +3649,20 @@ impl<'a> HIPDaemon<'a> {
 
             if is_hit_smaller {
                 // Update HIP StateMachine
-                let mut old_hip_state = self.hip_state_machine.get_mut(&ihit, &rhit)?;
+                let mut old_hip_state = self.hip_state_machine.get_mut(&rhit, &ihit)?;
                 match (&mut old_hip_state, hip_state) {
                     (Some(old_state), Some(new_state)) => **old_state = new_state,
                     (_, _) => {
                         hip_debug!(
-                            "Invalid states reached, prev: {:?}, current: {:?}",
+                            "#ista: hip_state::[prev: {:?}]=>[current: {:?}], invalid state reached",
                             old_hip_state,
                             hip_state
                         );
                         return Err(HIPError::InvalidState);
                     }
                 }
+
+                hip_debug!("{:?}", self.hip_state_machine.keys());
                 // Update State_Variables
                 self.state_vars_map.save(
                     &rhit,
@@ -3685,7 +3691,7 @@ impl<'a> HIPDaemon<'a> {
                     (Some(old_state), Some(new_state)) => **old_state = new_state,
                     (_, _) => {
                         hip_debug!(
-                            "Invalid states reached, prev: {:?}, new: {:?}",
+                            "#ista: hip_state::[prev: {:?}]=>[current: {:?}], invalid state reached",
                             old_hip_state,
                             hip_state
                         );

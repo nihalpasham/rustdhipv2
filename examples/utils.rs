@@ -8,7 +8,7 @@ use env_logger::Builder;
 #[cfg(feature = "log")]
 use log::{Level, LevelFilter};
 
-use rustdhipv2::time::Instant;
+use smoltcp::time::Instant;
 
 #[cfg(feature = "log")]
 pub fn setup_logging_with_clock<F>(filter: &str, since_startup: F)
