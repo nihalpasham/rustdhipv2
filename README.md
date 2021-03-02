@@ -34,7 +34,7 @@ More importantly, both pre-requisites must be the default and not tacked-on.
 - Mobility and Multi-homing 
 	- Example: Seamless switch-over to a backup `update-server` in a failover scenario.
 
-The neat thing about HIPv2 is that it operates at the application-layer and is a part of a host's networking stack.
+The neat thing about HIPv2 is that it does NOT operate at the application-layer but is a part of a host's networking stack.
 
 ## Advantages:
 - All network traffic flows through the secure channel by default
