@@ -1,7 +1,8 @@
-### Context: 
+
+## Host Identity Protocol for embedded systems [![](https://tokei.rs/b1/github/nihalpasham/rustdhipv2?category=code)](https://github.com/nihalpasham/rustdhipv2).
 I've been evaluating `TLS replacements` for constrained/embedded systems for a while now. Embedded systems have fewer (yet precise) security requirements, owing to available resources and TLS is not exactly a good fit for a couple of reasons.
 
-### Why not TLS:
+## Why not TLS:
 - Bloated with a plethora of extensions, ciphersuites and options.
 - Mutual TLS authentication is NOT the default and a serious pain to get right. (especially in a constrained environment)
 - Its not exactly lightweight (even with TLS 1.3) when you begin to account for extensions. Ex: client-auth extension.
@@ -11,7 +12,7 @@ I've been evaluating `TLS replacements` for constrained/embedded systems for a w
 
 More importantly, both pre-requisites must be the default and not tacked-on. 
 
-### HIPv2 is an IETF standard *[[rfc7401](https://tools.ietf.org/html/rfc7401)]* that offers
+## HIPv2 is an IETF standard *[[rfc7401](https://tools.ietf.org/html/rfc7401)]* that offers
 
 - Mutual authentication by default 
 	- HIPv2's central idea is - the creation and usage of unique, permanent, and cryptographically verifiable host/machine identities.
@@ -21,12 +22,12 @@ More importantly, both pre-requisites must be the default and not tacked-on.
 
 The neat thing about HIPv2 is that it operates at the application-layer and is a part of a host's networking stack.
 
-### Advantages:
+## Advantages:
 - All network traffic flows through the secure channel by default
 - We can build or extend it. 
 	- Example: its much easier to do secure multiparty computation if you can `guarantee` that all parties possess unique cryptographically verifiable identities.
 
-### A few things to keep in mind if you'd like to contribute:
+## A few things to keep in mind if you'd like to contribute:
 - It’s a PoC.
 - My core goal for this project is 
     - **To evaluate whether the entire HIPv2 protocol can be written in safe-rust, without the need for heap allocation, making it easier to port to any bare metal environment.**
@@ -39,7 +40,7 @@ I'm a security consultant by profession. This is a first attempt at putting toge
 - I've tried to keep the layout of code similar to that of `smoltcp` but there are a couple of deviations in the `crypto` department. 
 - I'll be adding more documentation over the coming weeks and months.
 
-### HIP Overview 
+## HIP Overview 
 
 One key component that binds `networking and security` is the concept of an IP address. An IP address provides 
 
@@ -65,7 +66,7 @@ I spent some time understanding the concept of a location-identity split. For st
 
 This simple change can help us build drastically different networks where secure internetworking is an inherent property of the system.
 
-### How it works -
+## How it works -
 
 HIP assigns a permanent, location-independent name to a host. HIP names are cryptographic identities that can be used to uniquely identify a host called host identity (it's essentially a public key). As public keys are quite long, usually it is more convenient to use a 128-bit fingerprint of the HI, which is called the Host Identity Tag (HIT). The HIT resembles an IPv6 address, and it gives the host a permanent name. 
 
@@ -104,9 +105,9 @@ We can describe this process as follows:
 | I --> &nbsp;	R (ESP protected data)      |
 | R --> &nbsp;	I (ESP protected data)		|
 
-### What's supported so far:
+## What's supported so far:
 - [x] HIP Base Exchange
-	- support for HIP BEX - I1, R1, I2, R2. 
+	- support for crafting HIP BEX packet types - I1, R1, I2, R2. 
 	- support for the 2 round-trip, end-to-end Diffie-Hellman (ECDH256, ECDH384) key-exchange protocol.
 	- support for ECSDA-256 (or 384) signature based authentication. 
 	- support for I2 and R2 (HMAC-SHA-256 based) message authentication codes.   
@@ -114,11 +115,11 @@ We can describe this process as follows:
 	- support for computational puzzles to protect HIP responders
 	- support for the (complete) HIP wire format (including all HIP parameters, packet types)
 	- BEX is written in **safe-rust** and does not require dynamic memory allocation except when using
-	 	- ECDH384 and ECDSA384 impl(s) which require dynamic memory allocation for now (as they rely on the `BigInt` crate).
+	 	- ECDH384 and ECDSA384 impl(s) which require dynamic memory allocation for now (as they rely on the `num-bigint-dig` crate).
 
 Note: This is a huge monolith for now. I do plan to re-factor this to make it more modular i.e. I'm thinking there should be a separate packet-processing logic block for each of the different packet-types. This should in theory make it easier to use rust's type-system to to enforce state-transition rules aka rust's famous tagline **make invalid states unpresentable**.
 
-### HIP BEX examples:
+## HIP BEX examples:
 
 The examples folder contains 2 examples 
 - hip_initiator: triggers or initiates the HIP session over `rawsockets` and is assigned
@@ -149,9 +150,14 @@ This should produce initiator and responder logs. Reference logs are available i
 
 *If you're using VSCode, pull up the task-list and run the `bridge tap interfaces` task. This should run the above commands and set you up.* 
 
-### Conclusion: Identity based networking
+## Conclusion: Identity based networking
 
 We can now design networks where devices talk to each other without having to navigate the complex landscape of network security.
 
 - Note - Certifying public keys or otherwise creating trust relationships between hosts has explicitly been left out of the HIP architecture, it is expected that each system using HIP may want to address it differently. 
 
+### References
+
+- https://tools.ietf.org/html/rfc7401 - *main HIP RFC*
+- https://code.launchpad.net/~hipl-core/hipl/trunk
+- https://github.com/dmitriykuptsov/cutehip
