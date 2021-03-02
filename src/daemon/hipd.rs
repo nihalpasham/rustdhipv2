@@ -241,7 +241,7 @@ impl<'a> HIPDaemon<'a> {
                 // that it must be pseudo-random
                 //
                 // - `irandom` initialized to [0] * 32 or 48 upon allocation
-                // - `opaque` to [0; 2] via `init_puzzle_param` method upon allocation
+                // - `opaque` to [0; 2] via `init_puzzle_param` upon allocation
                 let puzzle_param = match rhash_len {
                     0x20 => {
                         let mut puzzle_param = PuzzleParameter::new_checked_mut([0; 40])?;

@@ -460,6 +460,39 @@ mod test {
             }
         );
 
+        let ihit = [32u8, 1, 32, 1, 87, 49, 50, 242, 174, 14, 178, 139, 44, 8, 246, 35];
+        let rhit = [32u8, 1, 32, 1, 132, 58, 150, 38, 12, 183, 21, 139, 116, 22, 246, 82];
+
+        let result = Utils::hex_formatted_hit_bytes(Some(&ihit), None);
+        assert_eq!(
+            HeaplessStringTypes::U32(
+                String::from_str("2001:2001:5731:32f2:ae0e:b28b:2c08:f623").unwrap()
+            ),
+            result.unwrap()
+        );
+        let result = Utils::hex_formatted_hit_bytes(Some(&rhit), None);
+        assert_eq!(
+            HeaplessStringTypes::U32(
+                String::from_str("2001:2001:843a:9626:0cb7:158b:7416:f652").unwrap()
+            ),
+            result.unwrap()
+        );
+        let result = Utils::hex_formatted_hit_bytes(Some(&ihit), Some(&rhit));
+        assert_eq!(
+            HeaplessStringTypes::U64(
+                String::from_str("2001:2001:5731:32f2:ae0e:b28b:2c08:f623:2001:2001:843a:9626:0cb7:158b:7416:f652").unwrap()
+            ),
+            result.clone().unwrap()
+        );
+        println!(
+            "{:?}",
+            if let Ok(HeaplessStringTypes::U64(val)) = result {
+                val.as_str().len()
+            } else {
+                unimplemented!()
+            }
+        );
+
         let ipv4_src = [1, 2, 3, 4];
         let ipv4_dst = [5, 6, 7, 8];
 
