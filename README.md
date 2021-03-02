@@ -1,12 +1,26 @@
 
-## Host Identity Protocol for embedded systems [![](https://tokei.rs/b1/github/nihalpasham/rustdhipv2?category=code)](https://github.com/nihalpasham/rustdhipv2).
-I've been evaluating `TLS replacements` for constrained/embedded systems for a while now. Embedded systems have fewer (yet precise) security requirements, owing to available resources and TLS is not exactly a good fit for a couple of reasons.
+## Host Identity Protocol for embedded systems [![](https://tokei.rs/b1/github/nihalpasham/rustdhipv2?category=lines)](https://github.com/nihalpasham/rustdhipv2).
+
+I've been evaluating `TLS replacements` for constrained/embedded systems for a while now. Embedded systems have fewer (yet precise) security requirements, owing to available resources or by design.
+
+Embedded systems (or constrained connected machines) dont need to talk to every other machine on the planet (unlike people). They are designed to perform a specific set of functions. Functions that most likely require them to communicate with other machines. 
+
+The key point here is that the vast majority of embedded systems communicate with a `known or predetermined` set of peers. However, problem is that clearly identifying a networked machine (and its peers) is a non trivial undertaking, even today.
+
+In this repo, I explore the HIPv2 IETF standard which aims to solve this problem. 
 
 ## Why not TLS:
-- Bloated with a plethora of extensions, ciphersuites and options.
+
+TLS is not exactly a good fit for a couple of reasons.
+
+- It comes with a plethora of extensions, ciphersuites and options.
+- In addition to the above, TLS presents an additional set of challenges when working with devices that are limited in resources such as `compute, bandwidth or battery`.
+- In reality, this combination of `limited resources and way too many options` is in itself a pretty good source of complexity, resulting in buggy or high-mainetnance implementations. 
+- Put another way, this is a non-trivial undertaking, where even the most inconspicuous slip-up could prove to be a complete showstopper for everyone involved - the product teams/developers/integrators/maintenance engineers/mgmt.
 - Mutual TLS authentication is NOT the default and a serious pain to get right. (especially in a constrained environment)
 - Its not exactly lightweight (even with TLS 1.3) when you begin to account for extensions. Ex: client-auth extension.
 - Certificate sizes.
+- .... and more
 
 **What's needed:** - a simpler, easy-to-use, lightweight secure channel. A secure channel with just 2 pre-requisites. It must provide any 2 communicating parties the ability `to mutually authenticate each other and encrypt all data end-end.`
 
@@ -35,7 +49,7 @@ The neat thing about HIPv2 is that it operates at the application-layer and is a
 - It uses const_generics which requires nightly as of this writing.
 - In order to achieve its second goal (i.e. zero dynamic memory allocation), `rustdhipv2` depends on `smoltcp` and borrows many of its ideas (such as simplicity above all else). 
 
-### Notes: This is a WIP
+### Note: This is a WIP
 I'm a security consultant by profession. This is a first attempt at putting together a full fledged networking-related library. Please be feel free to chime-in if something's amiss.
 - I've tried to keep the layout of code similar to that of `smoltcp` but there are a couple of deviations in the `crypto` department. 
 - I'll be adding more documentation over the coming weeks and months.
@@ -158,6 +172,6 @@ We can now design networks where devices talk to each other without having to na
 
 ### References
 
-- https://tools.ietf.org/html/rfc7401 - *main HIP RFC*
+- https://tools.ietf.org/html/rfc7401 - *HIPv2 RFC*
 - https://code.launchpad.net/~hipl-core/hipl/trunk
 - https://github.com/dmitriykuptsov/cutehip
