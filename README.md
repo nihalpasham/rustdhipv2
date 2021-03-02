@@ -1,5 +1,5 @@
 
-## Host Identity Protocol for embedded systems [![](https://tokei.rs/b1/github/nihalpasham/rustdhipv2?category=lines)](https://github.com/nihalpasham/rustdhipv2).
+## Host Identity Protocol for bare-metal systems, using Rust [![](https://tokei.rs/b1/github/nihalpasham/rustdhipv2?category=lines)](https://github.com/nihalpasham/rustdhipv2).
 
 I've been evaluating `TLS replacements` for constrained/embedded systems for a while now. Embedded systems have fewer (yet precise) security requirements, owing to available resources or by design.
 
@@ -7,7 +7,7 @@ Embedded systems (or constrained connected machines) dont need to talk to every 
 
 The key point here is that the vast majority of embedded systems communicate with a `known or predetermined` set of peers. However, problem is that clearly identifying a networked machine (and its peers) is a non trivial undertaking, even today.
 
-In this repo, I explore the HIPv2 IETF standard which aims to solve this problem. 
+This repo implements the `HIPv2` IETF standard which aims to solve this problem. 
 
 ## Why not TLS:
 
