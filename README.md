@@ -1,9 +1,9 @@
 
-## Host Identity Protocol for bare-metal systems, using Rust [![](https://tokei.rs/b1/github/nihalpasham/rustdhipv2?category=lines)](https://github.com/nihalpasham/rustdhipv2).
+## Host Identity Protocol for bare-metal systems, using Rust [![](https://tokei.rs/b1/github/nihalpasham/rustdhipv2?category=code)](https://github.com/nihalpasham/rustdhipv2)
 
-I've been evaluating `TLS replacements` for constrained/embedded systems for a while now. Embedded systems have fewer (yet precise) security requirements, owing to available resources or by design.
+I've been evaluating `TLS replacements` in constrained environments for a while now. Embedded systems have fewer (yet precise) security requirements, owing to available resources or by design.
 
-Embedded systems (or constrained connected machines) dont need to talk to every other machine on the planet (unlike people). They are designed to perform a specific set of functions. Functions that most likely require them to communicate with other machines. 
+Embedded systems, unlike people dont need to talk to every other machine on the planet. They are designed to perform a specific set of functions. Functions that most likely require them to communicate with other machines. 
 
 The key point here is that the vast majority of embedded systems communicate with a `known or predetermined` set of peers. However, problem is that clearly identifying a networked machine (and its peers) is a non trivial undertaking, even today.
 
@@ -34,7 +34,7 @@ More importantly, both pre-requisites must be the default and not tacked-on.
 - Mobility and Multi-homing 
 	- Example: Seamless switch-over to a backup `update-server` in a failover scenario.
 
-The neat thing about HIPv2 is that it does NOT operate at the application-layer but is a part of a host's networking stack.
+The neat thing about HIPv2 is that it does NOT operate at the application-layer but rather is a part of a host's networking stack.
 
 ## Advantages:
 - All network traffic flows through the secure channel by default
@@ -131,23 +131,23 @@ We can describe this process as follows:
 	- BEX is written in **safe-rust** and does not require dynamic memory allocation except when using
 	 	- ECDH384 and ECDSA384 impl(s) which require dynamic memory allocation for now (as they rely on the `num-bigint-dig` crate).
 
-Note: This is a huge monolith for now. I do plan to re-factor this to make it more modular i.e. I'm thinking there should be a separate packet-processing logic block for each of the different packet-types. This should in theory make it easier to use rust's type-system to to enforce state-transition rules aka rust's famous tagline **make invalid states unpresentable**.
+Note: This is a huge monolith for now. I do plan to re-factor this to make it more modular i.e. I'm thinking there should be a separate packet-processing logic block for each of the different packet-types. This should in theory make it easier to use rust's type-system to to enforce state-transition rules aka **make invalid states un-representable**.
 
 ## HIP BEX examples:
 
 The examples folder contains 2 examples 
-- hip_initiator: triggers or initiates the HIP session over `rawsockets` and is assigned
+- **hip_initiator:** triggers or initiates the HIP session over `rawsockets` and is assigned
 	- IP - `192.168.69.1` 
 	- HIT - `2001:2001:5731:32f2:ae0e:b28b:2c08:f623`
-- hip_responder: responds to and processes valid incoming HIP packets
+- **hip_responder:** responds to and processes valid incoming HIP packets
 	- IP - `192.168.69.2`
 	- HIT - `2001:2001:843a:9626:0cb7:158b:7416:f652`
 
 You can test these examples via the `cargo run` command. But before you do, you'll need to add a `bridge and 2 tap interfaces`. You can do this via the following commands
 
 ```sh 
-ip tuntap add name tap0 mode tap user root
-ip tuntap add name tap1 mode tap user root
+ip tuntap add name tap0 mode tap user {$USER}
+ip tuntap add name tap1 mode tap user {$USER}
 brctl addbr br0
 brctl addif br0 tap0 tap1 
 ip link set tap0 up
@@ -157,8 +157,8 @@ ip link set br0 up
 
 check to see if everything's working via an `ifconfig` call. Once done, run the following in separate terminals.
 
-- cargo run --example hip_responder (make sure you run the server/responder first)
-- cargo run --example hip_initiator
+- `cargo run --example hip_responder` (make sure you run the server/responder first)
+- `cargo run --example hip_initiator`
 
 This should produce initiator and responder logs. Reference logs are available in the logs folder.
 
@@ -175,3 +175,4 @@ We can now design networks where devices talk to each other without having to na
 - https://tools.ietf.org/html/rfc7401 - *HIPv2 RFC*
 - https://code.launchpad.net/~hipl-core/hipl/trunk
 - https://github.com/dmitriykuptsov/cutehip
+- https://www.tempered.io/resources/#whitepapers 
