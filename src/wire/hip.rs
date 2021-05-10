@@ -3,7 +3,6 @@
 #![allow(warnings)]
 
 use byteorder::{ByteOrder, NetworkEndian};
-use field::HIP_SOLUTION_RANDOM_I_LENGTH;
 // use core::{cmp, fmt, i32, ops};
 use core::convert::TryInto;
 

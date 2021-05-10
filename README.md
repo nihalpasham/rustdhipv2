@@ -168,7 +168,7 @@ This should produce initiator and responder logs. Reference logs are available i
 
 We can now design networks where devices talk to each other without having to navigate the complex landscape of network security.
 
-- Note - Certifying public keys or otherwise creating trust relationships between hosts has explicitly been left out of the HIP architecture, it is expected that each system using HIP may want to address it differently. 
+- Note - HIPv2 doesn't mandate use of a specific method/mechanism, when it comes to establishing trust (i.e. certifying public keys). It is expected that each system using HIP may want to address it differently. But if you want to use *X.509 version 3* certificates, [RFC 8002](https://datatracker.ietf.org/doc/html/rfc8002) adds support for HIP certificates via an additional *CERT* parameter. 
 
 ### References
 
