@@ -4,4 +4,4 @@ Cargo.lock
 /wire/test1hip.rs
 /crypto/copy_ecdh.rs
 /storage/old_hipstate.rs
-/examples/
+/examples/trivial/
